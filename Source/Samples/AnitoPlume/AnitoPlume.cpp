@@ -29,6 +29,7 @@
 #include "Utils/Math/FalcorMath.h"
 #include "Utils/UI/TextRenderer.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
+#include "Scene/SceneBuilder.h"
 
 FALCOR_EXPORT_D3D12_AGILITY_SDK
 
@@ -223,6 +224,8 @@ void AnitoPlume::onHotReload(HotReloadFlags reloaded)
 void AnitoPlume::loadScene(const std::filesystem::path& path, const Fbo* pTargetFbo)
 {
     mpScene = Scene::create(getDevice(), path);
+    // The sample doesn't support dynamic geometry changes, even on load.
+    //mpScene->addCustomPrimitive(0, AABB(float3(-0.5f), float3(0.5f)));
 
     mpRenderGraph->setScene(mpScene);
     mpRenderGraph->onResize(pTargetFbo);
@@ -308,7 +311,8 @@ void AnitoPlume::renderRaster(RenderContext* pRenderContext, const ref<Fbo>& pTa
 
     mpRasterPass->getState()->setFbo(pTargetFbo);
     mpScene->rasterize(pRenderContext, mpRasterPass->getState().get(), mpRasterPass->getVars().get());
-    mpParticles->render(pRenderContext,pTargetFbo, mpCamera);
+    //mpParticles->simulate(pRenderContext, getGlobalClock().getDelta());
+    //mpParticles->render(pRenderContext,pTargetFbo, mpCamera);
 }
 
 void AnitoPlume::renderRT(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo)

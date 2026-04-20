@@ -15,7 +15,7 @@ static constexpr uint32_t kCounterBytes = 8; // [0] = deadCount, [1] = aliveCoun
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-class ParticleSystem : Object
+class ParticleSystem : public Object
 {
 public:
     FALCOR_OBJECT(ParticleSystem);
@@ -27,9 +27,9 @@ public:
     // =========================================================================
 
     // Call every frame — dispatches emit + update compute passes.
-    void simulate(RenderContext* pCtx, float deltaTime);
+    void simulate(RenderContext* pRenderContext, float deltaTime);
     // Call every frame after simulate() — composites billboards onto pTargetFbo.
-    void render(RenderContext* pCtx, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera);
+    void render(RenderContext* pRenderContext, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera);
 
 private:
     ParticleSystem(ref<Device> pDevice);
@@ -68,7 +68,7 @@ private:
 
     // Reads the alive count back to the CPU via a staging buffer.
     // Causes a GPU flush — replace with drawIndirect to eliminate the stall.
-    uint32_t readAliveCount(RenderContext* pCtx);
+    uint32_t readAliveCount(RenderContext* pRenderContext);
 
     // =========================================================================
     // Public tuning knobs — set any time before simulate()

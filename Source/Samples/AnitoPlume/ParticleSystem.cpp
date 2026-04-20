@@ -6,30 +6,30 @@ ref<ParticleSystem> ParticleSystem::create(ref<Device> pDevice)
 }
 
 // Call every frame — dispatches emit + update compute passes.
-void ParticleSystem::simulate(RenderContext* pCtx, float deltaTime)
+void ParticleSystem::simulate(RenderContext* pRenderContext, float deltaTime)
 {
     mFrameSeed++;
 
     // Reset alive counter each frame; dead counter is managed atomically
     uint32_t zero = 0;
-    pCtx->updateBuffer(mpCounters.get(), &zero, sizeof(uint32_t), sizeof(uint32_t));
+    pRenderContext->updateBuffer(mpCounters.get(), &zero, sizeof(uint32_t), sizeof(uint32_t));
 
     bindComputeResources(mpEmitPass->getRootVar(), deltaTime);
     bindComputeResources(mpUpdatePass->getRootVar(), deltaTime);
 
     // ── Emit ──────────────────────────────────────────────────────────────
-    mpEmitPass->execute(pCtx, divUp(mEmitPerFrame, 64u), 1, 1);
+    mpEmitPass->execute(pRenderContext, divUp(mEmitPerFrame, 64u), 1, 1);
 
     // ── Update ────────────────────────────────────────────────────────────
-    mpUpdatePass->execute(pCtx, divUp(kMaxParticles, 64u), 1, 1);
+    mpUpdatePass->execute(pRenderContext, divUp(kMaxParticles, 64u), 1, 1);
 }
 
 // Call every frame after simulate() — composites billboards onto pTargetFbo.
-void ParticleSystem::render(RenderContext* pCtx, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera)
+void ParticleSystem::render(RenderContext* pRenderContext, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera)
 {
     // CPU readback of alive count.
     // Replace with drawIndirect to avoid the GPU flush once stable.
-    uint32_t aliveCount = readAliveCount(pCtx);
+    uint32_t aliveCount = readAliveCount(pRenderContext);
     if (aliveCount == 0)
         return;
 
@@ -49,8 +49,8 @@ void ParticleSystem::render(RenderContext* pCtx, const ref<Fbo> pTargetFbo, cons
 
     // 4 vertices per particle (triangle strip quad), no index buffer.
     // RasterPass::execute() sets the FBO, scissors, and viewport then
-    // forwards to pCtx->drawIndexed() internally.
-    mpBillboardPass->drawIndexed(pCtx, pTargetFbo, 4, aliveCount);
+    // forwards to pRenderContext->drawIndexed() internally.
+    mpBillboardPass->drawIndexed(pRenderContext, pTargetFbo, 4, aliveCount);
 }
 
 ParticleSystem::ParticleSystem(ref<Device> pDevice) : mpDevice(pDevice)
@@ -179,12 +179,12 @@ void ParticleSystem::bindComputeResources(ShaderVar vars, float deltaTime)
 
 // Reads the alive count back to the CPU via a staging buffer.
 // Causes a GPU flush — replace with drawIndirect to eliminate the stall.
-uint32_t ParticleSystem::readAliveCount(RenderContext* pCtx)
+uint32_t ParticleSystem::readAliveCount(RenderContext* pRenderContext)
 {
     ref<Buffer> pStaging = mpDevice->createBuffer(sizeof(uint32_t), ResourceBindFlags::None, MemoryType::ReadBack);
 
-    pCtx->copyBufferRegion(pStaging.get(), 0, mpCounters.get(), sizeof(uint32_t), sizeof(uint32_t));
-    pCtx->submit(true);
+    pRenderContext->copyBufferRegion(pStaging.get(), 0, mpCounters.get(), sizeof(uint32_t), sizeof(uint32_t));
+    pRenderContext->submit(true);
 
     const uint32_t count = *static_cast<const uint32_t*>(pStaging->map());
     pStaging->unmap();

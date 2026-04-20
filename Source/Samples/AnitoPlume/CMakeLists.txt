@@ -5,6 +5,8 @@ target_sources(AnitoPlume PRIVATE
     AnitoPlume.h
     ParticleSystem.cpp
     ParticleSystem.h
+    BillboardGroup.cpp
+    BillboardGroup.h
     WindStructure.cpp
     WindStructure.h
     SmokeLayer.cpp
@@ -15,6 +17,7 @@ target_sources(AnitoPlume PRIVATE
     AnitoPlume.rt.slang
     Particles.cs.slang
     ParticleBillboard.3d.slang
+    BillboardGroup.3d.slang
 )
 
 target_copy_shaders(AnitoPlume Samples/AnitoPlume)
