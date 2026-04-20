@@ -1,9 +1,23 @@
 #include "BillboardGroup.h"
 #include "Scene/TriangleMesh.h"
 
-ref<BillboardGroup> BillboardGroup::create(RenderContext* pRenderContext, ref<Device> pDevice)
+struct QuadVertex
 {
-    return ref<BillboardGroup>(new BillboardGroup(pRenderContext, pDevice));
+    float2 position;
+    float2 uv;
+};
+
+static const QuadVertex kQuadVerts[4] = {
+    {{-0.5f,  0.5f}, {0.f, 0.f}},
+    {{ 0.5f,  0.5f}, {1.f, 0.f}},
+    {{ 0.5f, -0.5f}, {1.f, 1.f}},
+    {{-0.5f, -0.5f}, {0.f, 1.f}},
+};
+static const uint16_t kQuadIndices[6] = {0, 1, 2, 0, 2, 3};
+
+ref<BillboardGroup> BillboardGroup::create(RenderContext* pRenderContext, ref<Device> pDevice, uint32_t maxCount)
+{
+    return ref<BillboardGroup>(new BillboardGroup(pRenderContext, pDevice, maxCount));
 }
 
 void BillboardGroup::rasterize(RenderContext* pRenderContext, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera)
@@ -12,11 +26,12 @@ void BillboardGroup::rasterize(RenderContext* pRenderContext, const ref<Fbo> pTa
     mpState->setVao(mpVao);
     
     setPerFrameVars(pTargetFbo, pCamera);
+    updateInstances(pRenderContext);
 
-    pRenderContext->drawIndexedInstanced(mpState.get(), mpVars.get(), 6, mActiveCount, 0, 0, 0);
+    pRenderContext->drawIndexedInstanced(mpState.get(), mpVars.get(), 6, mpMaxCount, 0, 0, 0);
 }
 
-BillboardGroup::BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevice)
+BillboardGroup::BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevice, uint32_t maxCount) : mpMaxCount(maxCount)
 {
     ProgramDesc desc;
     desc.addShaderLibrary("Samples/AnitoPlume/BillboardGroup.3d.slang").vsEntry("vsMain").psEntry("psMain");
@@ -49,6 +64,20 @@ BillboardGroup::BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevic
     mpState->setBlendState(BlendState::create(blendDesc));
 
     createQuadMesh(pDevice);
+
+    mInstances.resize(maxCount);
+    for (uint32_t i = 0; i < maxCount; i++)
+        mInstances[i] = {{0.f, 0.f, 0.f}, 0, {100.f, 100.f}, {1.f, 1.f, 1.f, 1.f}};
+
+    // Allocate GPU instance buffer (StructuredBuffer<BillboardInstance>)
+    mpInstanceBuffer = pDevice->createStructuredBuffer(
+        sizeof(BillboardInstance),
+        mInstances.size(),
+        ResourceBindFlags::ShaderResource,
+        MemoryType::DeviceLocal,
+        mInstances.data(),
+        false
+    );
 }
 
 void BillboardGroup::createQuadMesh(ref<Device> pDevice)
@@ -89,37 +118,39 @@ void BillboardGroup::setPerFrameVars(const ref<Fbo>& pTargetFbo, ref<Camera> pCa
     // Camera right/up vectors for CPU-side billboard orientation
     // (passed as uniforms; the shader uses them directly)
     const float4x4& view = pCamera->getViewMatrix();
-    float3 camRight = {view[0][0], view[1][0], view[2][0]};
-    float3 camUp = {view[0][1], view[1][1], view[2][1]};
+    float3 cameraRight = float3(view[0][0], view[0][1], view[0][2]);
+    float3 cameraUp = float3(view[1][0], view[1][1], view[1][2]);
 
     auto var = mpVars->getRootVar();
-    //var["gInstances"] = mpInstanceBuffer;
+    var["gInstances"] = mpInstanceBuffer;
     //var["gTexArray"] = mpTextureArray;
     //var["gSampler"] = Sampler::create(pDevice, Sampler::Desc{});
-    var["BillboardCB"]["gCamRight"] = camRight;
-    var["BillboardCB"]["gCamUp"] = camUp;
+    var["BillboardCB"]["gCameraPosition"] = pCamera->getPosition();
+    var["BillboardCB"]["gCameraRight"] = cameraRight;
+    var["BillboardCB"]["gCameraUp"] = cameraUp;
     var["BillboardCB"]["gViewProj"] = pCamera->getViewProjMatrix();
-    var["BillboardCB"]["gInstanceCount"] = mActiveCount;
+    var["BillboardCB"]["gInstanceCount"] = mpMaxCount;
+    var["BillboardCB"]["gMinAlphaDistance"] = 20.0f;
 }
 //
 //void BillboardGroup::setCount(uint32_t count)
 //{
 //    FALCOR_ASSERT(count <= (uint32_t)mInstances.size());
 //    mActiveCount = count;
-//    mDirty = true;
+//    mUpdateInstances = true;
 //}
-//
-//void BillboardGroup::setInstance(uint32_t index, float3 worldPos, uint32_t texIndex, float2 size)
-//{
-//    FALCOR_ASSERT(index < (uint32_t)mInstances.size());
-//    mInstances[index] = {worldPos, texIndex, size, {}};
-//    mDirty = true;
-//}
-//
-//void BillboardGroup::updateInstances(RenderContext* pRenderContext)
-//{
-//    if (!mDirty || mActiveCount == 0)
-//        return;
-//    mpInstanceBuffer->setBlob(mInstances.data(), 0, mActiveCount * sizeof(BillboardInstance));
-//    mDirty = false;
-//}
+
+void BillboardGroup::setInstance(uint32_t index, float3 worldPos, uint32_t texIndex, float2 size, float4 color)
+{
+    FALCOR_ASSERT(index < (uint32_t)mInstances.size());
+    mInstances[index] = {worldPos, texIndex, size, color};
+    mUpdateInstances = true;
+}
+
+void BillboardGroup::updateInstances(RenderContext* pRenderContext)
+{
+    if (!mUpdateInstances || mInstances.size() == 0)
+        return;
+    mpInstanceBuffer->setBlob(mInstances.data(), 0, mInstances.size() * sizeof(BillboardInstance));
+    mUpdateInstances = false;
+}

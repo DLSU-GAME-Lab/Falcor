@@ -3,19 +3,14 @@
 
 using namespace Falcor;
 
-struct QuadVertex
+// Per-instance data uploaded to the GPU
+struct BillboardInstance
 {
-    float2 position;
-    float2 uv;
+    float3 worldPosition;
+    uint32_t textureIndex; // index into the texture array
+    float2 size;           // billboard half-extents in world space
+    float4 color;          // optional per-instance color
 };
-
-static const QuadVertex kQuadVerts[4] = {
-    {{-0.5f, 0.5f}, {0.f, 0.f}},
-    {{0.5f, 0.5f}, {1.f, 0.f}},
-    {{0.5f, -0.5f}, {1.f, 1.f}},
-    {{-0.5f, -0.5f}, {0.f, 1.f}},
-};
-static const uint16_t kQuadIndices[6] = {0, 1, 2, 0, 2, 3};
 
 class BillboardGroup : public Object
 {
@@ -23,34 +18,33 @@ public:
     FALCOR_OBJECT(BillboardGroup);
 
     // Creates a reference to a billboard group.
-    static ref<BillboardGroup> create(RenderContext* pRenderContext, ref<Device> pDevice);
+    static ref<BillboardGroup> create(RenderContext* pRenderContext, ref<Device> pDevice, uint32_t maxCount);
 
     // Call every frame to composite billboard instances onto pTargetFbo.
     void rasterize(RenderContext* pRenderContext, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera);
 
     //void setCount(uint32_t count);
-    //void setInstance(uint32_t index, float3 worldPos, uint32_t texIndex, float2 size);
-    //
+    void setInstance(uint32_t index, float3 worldPos, uint32_t texIndex, float2 size, float4 color);
+    
 private:
-    BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevice);
-
-    struct Billboard
-    {
-        float3 position;        // billboard center in world space
-        float2 size;            // billboard half-extents in world space
-        uint32_t textureIndex;  // index into the texture array
-    };
+    BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevice, uint32_t maxCount);
 
     void createQuadMesh(ref<Device> pDevice);
+
+    void updateInstances(RenderContext* pRenderContext);
     void setPerFrameVars(const ref<Fbo>& pTargetFbo, ref<Camera> pCamera);
 
     ref<Program> mpProgram;
     ref<ProgramVars> mpVars;
     ref<GraphicsState> mpState;
+    
+    ref<Buffer> mpInstanceBuffer; // Per-instance structured buffer (GPU-side)
+    std::vector<BillboardInstance> mInstances; // Per-instance data (CPU-side)
+    uint32_t mpMaxCount = 1; // number of active billboards to render
+    bool mUpdateInstances = true; // whether to update the instance buffer on the next rasterize() call
 
     ref<Buffer> mpVertexBuffer;
     ref<Buffer> mpIndexBuffer;
     ref<Vao> mpVao;
 
-    uint32_t mActiveCount = 1; // number of active billboards to render
 };

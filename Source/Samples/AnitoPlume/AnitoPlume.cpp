@@ -107,6 +107,14 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
 
     mpParticles = ParticleSystem::create(getDevice());
 
+    float2 size = {50, 50};
+    mpBillboards = BillboardGroup::create(pRenderContext, getDevice(), 5);
+    mpBillboards->setInstance(0, {0, 50, 0}, 0, size, {1.f, 0.f, 0.f, 0.5f});
+    mpBillboards->setInstance(1, {200, 50, 200}, 0, size, {1.f, 1.f, 0.f, 0.5f});
+    mpBillboards->setInstance(2, {-200, 50, -200}, 0, size, {0.f, 1.f, 0.f, 0.5f});
+    mpBillboards->setInstance(3, {200, 50, -200}, 0, size, {0.f, 1.f, 1.f, 0.5f});
+    mpBillboards->setInstance(4, {-200, 50, 200}, 0, size, {0.f, 0.f, 1.f, 0.5f});
+
     loadScene(kDefaultScene, getTargetFbo().get());
     getDevice()->getProfiler()->setEnabled(true);
 }
@@ -201,6 +209,12 @@ bool AnitoPlume::onKeyEvent(const KeyboardEvent& keyEvent)
     if (keyEvent.key == Input::Key::Key3 && keyEvent.type == KeyboardEvent::Type::KeyPressed)
     {
         mRenderMode = RenderMode::Graph;
+        return true;
+    }
+
+    if (keyEvent.key == Input::Key::P && keyEvent.type == KeyboardEvent::Type::KeyPressed)
+    {
+        mpBillboards->setInstance(0, float3(100, 0, 100), 0, float2(100, 100), float4(1.0f, 0.0f, 0.2f, 0.1f));
         return true;
     }
 
@@ -313,6 +327,7 @@ void AnitoPlume::renderRaster(RenderContext* pRenderContext, const ref<Fbo>& pTa
     mpScene->rasterize(pRenderContext, mpRasterPass->getState().get(), mpRasterPass->getVars().get());
     //mpParticles->simulate(pRenderContext, getGlobalClock().getDelta());
     //mpParticles->render(pRenderContext,pTargetFbo, mpCamera);
+    mpBillboards->rasterize(pRenderContext, pTargetFbo, mpCamera);
 }
 
 void AnitoPlume::renderRT(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo)

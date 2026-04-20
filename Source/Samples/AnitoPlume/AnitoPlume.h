@@ -36,6 +36,8 @@
 #include "WindStructure.h"
 #include "TerrainStructure.h"
 #include "SmokeLayer.h"
+#include "BillboardGroup.h"
+
 using namespace Falcor;
 
 class AnitoPlume : public SampleApp
@@ -137,6 +139,7 @@ private:
     ref<Camera> mpCamera;
     ref<EnvMap> mpEnvMap;
     ref<ParticleSystem> mpParticles;
+    ref<BillboardGroup> mpBillboards;
 
     ref<RenderGraph> mpRenderGraph;
     ref<RasterPass> mpRasterPass;

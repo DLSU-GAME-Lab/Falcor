@@ -115,7 +115,10 @@ void ParticleSystem::initBillboardPass()
     // RasterPass takes a Program::Desc the same way HelloDXR constructs its
     // own raster passes — no manual GraphicsState or GraphicsVars needed.
     ProgramDesc billboardDesc;
+    //billboardDesc.addShaderModules(shaderModules);
     billboardDesc.addShaderLibrary("Samples/AnitoPlume/ParticleBillboard.3d.slang").vsEntry("vsMain").psEntry("psMain");
+    //billboardDesc.addTypeConformances(typeConformances);
+
 
     mpBillboardPass = RasterPass::create(mpDevice, billboardDesc);
 
