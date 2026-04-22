@@ -27,10 +27,7 @@
  **************************************************************************/
 #pragma once
 #include "Falcor.h"
-#include "Core/Plugin.h"
 #include "Core/SampleApp.h"
-#include "Core/AssetResolver.h"
-#include "Core/Pass/RasterPass.h"
 #include "RenderGraph/RenderGraph.h"
 #include "ParticleSystem.h"
 #include "WindStructure.h"
@@ -152,6 +149,4 @@ private:
     bool mUseDOF = false;
 
     uint32_t mSampleIndex = 0xdeadbeef;
-
-    AssetResolver mAssetResolver;
 };

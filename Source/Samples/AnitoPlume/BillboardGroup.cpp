@@ -1,23 +1,12 @@
 #include "BillboardGroup.h"
 #include "Scene/TriangleMesh.h"
+#include "Core/AssetResolver.h"
 
-struct QuadVertex
+static const uint16_t kQuadIndices[6] = {0, 1, 2, 0, 2, 3}; // CCW
+
+ref<BillboardGroup> BillboardGroup::create(RenderContext* pRenderContext, ref<Device> pDevice, Desc desc)
 {
-    float2 position;
-    float2 uv;
-};
-
-static const QuadVertex kQuadVerts[4] = {
-    {{-0.5f,  0.5f}, {0.f, 0.f}},
-    {{ 0.5f,  0.5f}, {1.f, 0.f}},
-    {{ 0.5f, -0.5f}, {1.f, 1.f}},
-    {{-0.5f, -0.5f}, {0.f, 1.f}},
-};
-static const uint16_t kQuadIndices[6] = {0, 1, 2, 0, 2, 3};
-
-ref<BillboardGroup> BillboardGroup::create(RenderContext* pRenderContext, ref<Device> pDevice, uint32_t maxCount)
-{
-    return ref<BillboardGroup>(new BillboardGroup(pRenderContext, pDevice, maxCount));
+    return ref<BillboardGroup>(new BillboardGroup(pRenderContext, pDevice, desc));
 }
 
 void BillboardGroup::rasterize(RenderContext* pRenderContext, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera)
@@ -28,25 +17,31 @@ void BillboardGroup::rasterize(RenderContext* pRenderContext, const ref<Fbo> pTa
     setPerFrameVars(pTargetFbo, pCamera);
     updateInstances(pRenderContext);
 
-    pRenderContext->drawIndexedInstanced(mpState.get(), mpVars.get(), 6, mpMaxCount, 0, 0, 0);
+    pRenderContext->drawIndexedInstanced(mpState.get(), mpVars.get(), 6, mpInstanceBuffer->getElementCount(), 0, 0, 0);
 }
 
-BillboardGroup::BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevice, uint32_t maxCount) : mpMaxCount(maxCount)
+BillboardGroup::BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevice, Desc desc) : mDesc(desc)
 {
-    ProgramDesc desc;
-    desc.addShaderLibrary("Samples/AnitoPlume/BillboardGroup.3d.slang").vsEntry("vsMain").psEntry("psMain");
-    mpProgram = Program::create(pDevice, desc);
+    ProgramDesc programDesc;
+    programDesc.addShaderLibrary("Samples/AnitoPlume/BillboardGroup.3d.slang").vsEntry("vsMain").psEntry("psMain");
+    mpProgram = Program::create(pDevice, programDesc);
     mpVars = ProgramVars::create(pDevice, mpProgram->getReflector());
 
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear);
+    samplerDesc.setAddressingMode(TextureAddressingMode::Clamp, TextureAddressingMode::Clamp, TextureAddressingMode::Clamp);
+    mpSampler = pDevice->createSampler(samplerDesc);
+
     RasterizerState::Desc rsDesc;
-    rsDesc.setCullMode(RasterizerState::CullMode::None); // quads are single-sided from GS
+    rsDesc.setCullMode(RasterizerState::CullMode::None);
 
     DepthStencilState::Desc dsDesc;
     dsDesc.setDepthEnabled(true);
-    dsDesc.setDepthWriteMask(true);
+    dsDesc.setDepthWriteMask(false); // Disable so transparent billboards don't write to depth buffer
 
     BlendState::Desc blendDesc;
     blendDesc.setRtBlend(0, true);
+    //blendDesc.setAlphaToCoverage(true); //MSAA must be enabled for this to work
     blendDesc.setRtParams(
         0,
         BlendState::BlendOp::Add,
@@ -64,10 +59,11 @@ BillboardGroup::BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevic
     mpState->setBlendState(BlendState::create(blendDesc));
 
     createQuadMesh(pDevice);
+    loadTextures(pRenderContext, pDevice);
 
-    mInstances.resize(maxCount);
-    for (uint32_t i = 0; i < maxCount; i++)
-        mInstances[i] = {{0.f, 0.f, 0.f}, 0, {100.f, 100.f}, {1.f, 1.f, 1.f, 1.f}};
+    mInstances.resize(mDesc.maxCount);
+    for (uint32_t i = 0; i < mDesc.maxCount; i++)
+        mInstances[i] = {{0.f, 0.f, 0.f}, i, {1.f, 1.f}, {1.f, 1.f, 1.f, 1.f}};
 
     // Allocate GPU instance buffer (StructuredBuffer<BillboardInstance>)
     mpInstanceBuffer = pDevice->createStructuredBuffer(
@@ -90,10 +86,10 @@ void BillboardGroup::createQuadMesh(ref<Device> pDevice)
     pLayout->addBufferLayout(0, pBufLayout);
 
     mpVertexBuffer = pDevice->createBuffer(
-        sizeof(kQuadVerts),
+        sizeof(mDesc.kQuadVerts),
         ResourceBindFlags::Vertex,
         MemoryType::DeviceLocal,
-        kQuadVerts
+        mDesc.kQuadVerts
     );
 
     mpIndexBuffer = pDevice->createBuffer(
@@ -113,6 +109,48 @@ void BillboardGroup::createQuadMesh(ref<Device> pDevice)
     );
 }
 
+void BillboardGroup::loadTextures(RenderContext* pRenderContext, ref<Device> pDevice)
+{
+    std::vector<std::string> paths = {
+        "AnitoPlume/tooltips/Tooltip-Malaki.png",
+        "AnitoPlume/tooltips/Tooltip-Munti.png",
+        "AnitoPlume/tooltips/Tooltip-Piraso.png",
+        "AnitoPlume/tooltips/Tooltip-Calauit.png",
+        "AnitoPlume/tooltips/Tooltip-Tabaro.png",
+    };
+
+    // Load each slice as a plain Texture2D first
+    std::vector<ref<Texture>> staging;
+    AssetResolver resolver = AssetResolver::getDefaultResolver();
+    for (auto& p : paths)
+    {
+        std::filesystem::path resolvedPath = resolver.resolvePath(p);
+        staging.push_back(Texture::createFromFile(pDevice, resolvedPath, true, true));
+    }
+
+    uint32_t w = staging[0]->getWidth();
+    uint32_t h = staging[0]->getHeight();
+    uint32_t mips = staging[0]->getMipCount();
+    uint32_t slices = (uint32_t)staging.size();
+    ResourceFormat fmt = staging[0]->getFormat();
+
+    mpTexArray = pDevice->createTexture2D(w, h, fmt, mips, slices, nullptr, ResourceBindFlags::ShaderResource);
+
+    // Blit each loaded Texture2D into the correct array slice
+    for (uint32_t slice = 0; slice < slices; slice++)
+    {
+        for (uint32_t mip = 0; mip < mips; mip++)
+        {
+            pRenderContext->copySubresource(
+                mpTexArray.get(),
+                mpTexArray->getSubresourceIndex(slice, mip),
+                staging[slice].get(),
+                staging[slice]->getSubresourceIndex(0, mip)
+            );
+        }
+    }
+}
+
 void BillboardGroup::setPerFrameVars(const ref<Fbo>& pTargetFbo, ref<Camera> pCamera)
 {
     // Camera right/up vectors for CPU-side billboard orientation
@@ -123,14 +161,15 @@ void BillboardGroup::setPerFrameVars(const ref<Fbo>& pTargetFbo, ref<Camera> pCa
 
     auto var = mpVars->getRootVar();
     var["gInstances"] = mpInstanceBuffer;
-    //var["gTexArray"] = mpTextureArray;
-    //var["gSampler"] = Sampler::create(pDevice, Sampler::Desc{});
+    var["gTexArray"] = mpTexArray;
+    var["gSampler"] = mpSampler;
     var["BillboardCB"]["gCameraPosition"] = pCamera->getPosition();
     var["BillboardCB"]["gCameraRight"] = cameraRight;
     var["BillboardCB"]["gCameraUp"] = cameraUp;
     var["BillboardCB"]["gViewProj"] = pCamera->getViewProjMatrix();
-    var["BillboardCB"]["gInstanceCount"] = mpMaxCount;
-    var["BillboardCB"]["gMinAlphaDistance"] = 20.0f;
+    var["BillboardCB"]["gInstanceCount"] = (uint32_t)mInstances.size();
+    var["BillboardCB"]["gMinAlphaDistance"] = mDesc.minAlphaDistance;
+    var["BillboardCB"]["gMaxAlphaDistance"] = mDesc.maxAlphaDistance;
 }
 //
 //void BillboardGroup::setCount(uint32_t count)
@@ -140,10 +179,10 @@ void BillboardGroup::setPerFrameVars(const ref<Fbo>& pTargetFbo, ref<Camera> pCa
 //    mUpdateInstances = true;
 //}
 
-void BillboardGroup::setInstance(uint32_t index, float3 worldPos, uint32_t texIndex, float2 size, float4 color)
+void BillboardGroup::setInstance(uint32_t index, float3 worldPos, uint32_t texId, float2 size, float4 color)
 {
     FALCOR_ASSERT(index < (uint32_t)mInstances.size());
-    mInstances[index] = {worldPos, texIndex, size, color};
+    mInstances[index] = {worldPos, texId, size, color};
     mUpdateInstances = true;
 }
 

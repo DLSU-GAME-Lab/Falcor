@@ -87,11 +87,10 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
     }
 
     // Load all render pass plugins (PathTracer, GBuffer, etc.)
-    PluginManager::instance().loadAllPlugins();
-    mAssetResolver = AssetResolver::getDefaultResolver();
+    AssetResolver resolver = AssetResolver::getDefaultResolver();
 
     // Load any .py render graph from Source/Mogwai/Data/
-    std::filesystem::path scriptPath = mAssetResolver.resolvePath("AnitoPlume/scripts/PathTracer.py", AssetCategory::Scene);
+    std::filesystem::path scriptPath = resolver.resolvePath("AnitoPlume/scripts/PathTracer.py", AssetCategory::Scene);
     mpRenderGraph = RenderGraph::createFromFile(getDevice(), scriptPath);
 
     if (mpRenderGraph == nullptr)
@@ -107,13 +106,21 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
 
     mpParticles = ParticleSystem::create(getDevice());
 
-    float2 size = {50, 50};
-    mpBillboards = BillboardGroup::create(pRenderContext, getDevice(), 5);
-    mpBillboards->setInstance(0, {0, 50, 0}, 0, size, {1.f, 0.f, 0.f, 0.5f});
-    mpBillboards->setInstance(1, {200, 50, 200}, 0, size, {1.f, 1.f, 0.f, 0.5f});
-    mpBillboards->setInstance(2, {-200, 50, -200}, 0, size, {0.f, 1.f, 0.f, 0.5f});
-    mpBillboards->setInstance(3, {200, 50, -200}, 0, size, {0.f, 1.f, 1.f, 0.5f});
-    mpBillboards->setInstance(4, {-200, 50, 200}, 0, size, {0.f, 0.f, 1.f, 0.5f});
+    BillboardGroup::Desc bgDesc;
+    bgDesc.setMaxCount(5);
+    bgDesc.setMinAlphaDistance(200.f);
+    bgDesc.setMaxAlphaDistance(50.f);
+    //bgDesc.setQuadOffset({-0.5f, 0.5f});
+
+    mpBillboards = BillboardGroup::create(pRenderContext, getDevice(), bgDesc);
+
+    float2 size = {200, 200};
+    float4 color = {1.f, 1.f, 1.f, 1.f};
+    mpBillboards->setInstance(0, {0, 50, 0}, 0, size, color);
+    mpBillboards->setInstance(1, {200, 50, 200}, 1, size, color);
+    mpBillboards->setInstance(2, {-200, 50, -200}, 2, size, color);
+    mpBillboards->setInstance(3, {200, 50, -200}, 3, size, color);
+    mpBillboards->setInstance(4, {-200, 50, 200}, 4, size, color);
 
     loadScene(kDefaultScene, getTargetFbo().get());
     getDevice()->getProfiler()->setEnabled(true);
@@ -272,6 +279,8 @@ void AnitoPlume::loadScene(const std::filesystem::path& path, const Fbo* pTarget
 
     mpRasterPass = RasterPass::create(getDevice(), rasterProgDesc, defines);
 
+    ref<Texture> tex = createGUITexture(kResetIconPath);
+
     // We'll now create a raytracing program. To do that we need to setup two things:
     // - A program description (ProgramDesc). This holds all shader entry points, compiler flags, macro defintions,
     // etc.
@@ -365,7 +374,8 @@ void AnitoPlume::renderGraph(RenderContext* pRenderContext, const ref<Fbo>& pTar
 
 ref<Texture> AnitoPlume::createGUITexture(const std::filesystem::path& path)
 {
-    std::filesystem::path resolvedPath = mAssetResolver.resolvePath(path, AssetCategory::Scene);
+    AssetResolver resolver = AssetResolver::getDefaultResolver();
+    std::filesystem::path resolvedPath = resolver.resolvePath(path, AssetCategory::Scene);
     return Texture::createFromFile(getDevice(), resolvedPath.string(), true, false);
 }
 

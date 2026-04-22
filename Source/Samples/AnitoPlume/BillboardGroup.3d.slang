@@ -1,8 +1,8 @@
 // Per-instance data (matches BillboardInstance in C++)
 struct BillboardInstance
 {
-    float3   worldPosition;
-    uint     textureIndex;
+    float3   worldPos;
+    uint     texId;
     float2   size;
     float4   color;
 };
@@ -16,6 +16,7 @@ cbuffer BillboardCB
     float4x4 gViewProj;
     uint gInstanceCount;
     float gMinAlphaDistance;
+    float gMaxAlphaDistance;
 };
 
 StructuredBuffer<BillboardInstance> gInstances;
@@ -32,8 +33,9 @@ struct VsIn
 struct VsOut
 {
     float4 pos      : SV_Position;
+    float3 worldPos : WORLDPOS;
     float2 uv       : TEXCOORD;
-    uint   texIndex : TEXINDEX;
+    uint texId      : TEXINDEX;
     float4 color    : COLOR;
 };
 
@@ -44,14 +46,15 @@ VsOut vsMain(VsIn vIn, uint instanceID : SV_InstanceID)
     BillboardInstance inst = gInstances[instanceID];
 
     // Expand the quad vertex in world space
-    float3 worldPos = inst.worldPosition
+    float3 worldPos = inst.worldPos
         + gCameraRight * (vIn.localPos.x * inst.size.x)
         + gCameraUp * (vIn.localPos.y * inst.size.y);
 
     VsOut vOut;
     vOut.pos = mul(gViewProj, float4(worldPos, 1.0));
+    vOut.worldPos = worldPos;
     vOut.uv = vIn.uv;
-    vOut.texIndex = inst.textureIndex;
+    vOut.texId = inst.texId;
     vOut.color = inst.color;
     return vOut;
 }
@@ -60,23 +63,26 @@ VsOut vsMain(VsIn vIn, uint instanceID : SV_InstanceID)
 [shader("pixel")]
 float4 psMain(VsOut pIn) : SV_Target
 {
-    float4 color = pIn.color;
+    float4 color = gTexArray.Sample(
+        gSampler,
+        float3(pIn.uv, float(pIn.texId))
+    );
 
-    //if (gMinAlphaDistance != 0.0f)
-    //{
-    //    // Optionally fade out based on distance to camera
-    //    // TODO: Change pIn.pos.xyz to world space position.
-    //    float dist = distance(gCameraPosition, pIn.pos.xyz);
-    //    if (dist < gMinAlphaDistance)
-    //    {
-    //        float alpha = saturate(dist / gMinAlphaDistance);
-    //        color.a *= alpha;
-    //    }
-    //}
+    float dist = distance(gCameraPosition, pIn.worldPos);
+    if (gMaxAlphaDistance > gMinAlphaDistance && dist < gMaxAlphaDistance)
+    {
+        discard; // Too close to camera, discard
+    }
+    else if (gMinAlphaDistance != 0.0f && dist < gMinAlphaDistance)
+    {
+        // Optionally fade out based on distance to camera
+        float ratio = max(((dist - gMaxAlphaDistance) / (gMinAlphaDistance - gMaxAlphaDistance)), 0.0);
+        float alpha = saturate(ratio);
+        color.a *= alpha;
+    }
 
-    //float4 color = gTexArray.Sample(
-    //    gSampler,
-    //    float3(pIn.uv, (float)pIn.texIndex));
+    if (color.a < 0.1) discard;
+    else color *= pIn.color;
 
     // Simple alpha cutout — swap for blending if needed
     clip(color.a - 0.01f);
