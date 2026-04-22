@@ -106,22 +106,7 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
 
     mpParticles = ParticleSystem::create(getDevice());
 
-    BillboardGroup::Desc bgDesc;
-    bgDesc.setMaxCount(5);
-    bgDesc.setMinAlphaDistance(200.f);
-    bgDesc.setMaxAlphaDistance(50.f);
-    //bgDesc.setQuadOffset({-0.5f, 0.5f});
-
-    mpBillboards = BillboardGroup::create(pRenderContext, getDevice(), bgDesc);
-
-    float2 size = {200, 200};
-    float4 color = {1.f, 1.f, 1.f, 1.f};
-    mpBillboards->setInstance(0, {0, 50, 0}, 0, size, color);
-    mpBillboards->setInstance(1, {200, 50, 200}, 1, size, color);
-    mpBillboards->setInstance(2, {-200, 50, -200}, 2, size, color);
-    mpBillboards->setInstance(3, {200, 50, -200}, 3, size, color);
-    mpBillboards->setInstance(4, {-200, 50, 200}, 4, size, color);
-
+    setupTerrainInfo(pRenderContext);
     loadScene(kDefaultScene, getTargetFbo().get());
     getDevice()->getProfiler()->setEnabled(true);
 }
@@ -221,7 +206,7 @@ bool AnitoPlume::onKeyEvent(const KeyboardEvent& keyEvent)
 
     if (keyEvent.key == Input::Key::P && keyEvent.type == KeyboardEvent::Type::KeyPressed)
     {
-        mpBillboards->setInstance(0, float3(100, 0, 100), 0, float2(100, 100), float4(1.0f, 0.0f, 0.2f, 0.1f));
+        mpTerrainInfo->setInstance(0, float3(100, 0, 100), 0, float2(100, 100), float4(1.0f, 0.0f, 0.2f, 0.1f));
         return true;
     }
 
@@ -336,7 +321,7 @@ void AnitoPlume::renderRaster(RenderContext* pRenderContext, const ref<Fbo>& pTa
     mpScene->rasterize(pRenderContext, mpRasterPass->getState().get(), mpRasterPass->getVars().get());
     //mpParticles->simulate(pRenderContext, getGlobalClock().getDelta());
     //mpParticles->render(pRenderContext,pTargetFbo, mpCamera);
-    mpBillboards->rasterize(pRenderContext, pTargetFbo, mpCamera);
+    if (mDisplayInfoUI) mpTerrainInfo->rasterize(pRenderContext, pTargetFbo, mpCamera);
 }
 
 void AnitoPlume::renderRT(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo)
@@ -589,6 +574,35 @@ void AnitoPlume::renderProfiler(Gui* pGui)
 
     // TODO: Implement  the profiler
     widget.text(getFrameRate().getMsg());
+}
+
+void AnitoPlume::setupTerrainInfo(RenderContext* pRenderContext)
+{
+    BillboardGroup::Desc bgDesc;
+    bgDesc.setMaxCount(5);
+    bgDesc.setMinAlphaDistance(200.f);
+    bgDesc.setMaxAlphaDistance(50.f);
+    // bgDesc.setQuadOffset({-0.5f, 0.5f});
+
+    mpTerrainInfo = BillboardGroup::create(pRenderContext, getDevice(), bgDesc);
+
+    std::vector<std::string> paths = {
+        "AnitoPlume/tooltips/Tooltip-Malaki.png",
+        "AnitoPlume/tooltips/Tooltip-Munti.png",
+        "AnitoPlume/tooltips/Tooltip-Piraso.png",
+        "AnitoPlume/tooltips/Tooltip-Calauit.png",
+        "AnitoPlume/tooltips/Tooltip-Tabaro.png",
+    };
+
+    mpTerrainInfo->loadTextures(pRenderContext, getDevice(), paths);
+
+    float2 size = {200, 200};
+    float4 color = {1.f, 1.f, 1.f, 1.f};
+    mpTerrainInfo->setInstance(0, {0, 50, 0}, 0, size, color);
+    mpTerrainInfo->setInstance(1, {200, 50, 200}, 1, size, color);
+    mpTerrainInfo->setInstance(2, {-200, 50, -200}, 2, size, color);
+    mpTerrainInfo->setInstance(3, {200, 50, -200}, 3, size, color);
+    mpTerrainInfo->setInstance(4, {-200, 50, 200}, 4, size, color);
 }
 
 float AnitoPlume::windIntensityGraphCallback(void*, int32_t index)

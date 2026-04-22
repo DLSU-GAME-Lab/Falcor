@@ -92,6 +92,8 @@ private:
     void renderPlumeDirectionTracker(Gui* pGui);
     void renderProfiler(Gui* pGui);
 
+    void setupTerrainInfo(RenderContext* pRenderContext);
+
 private:
     static float windIntensityGraphCallback(void*, int32_t index);
     static float windAngleGraphCallback(void*, int32_t index);
@@ -136,7 +138,7 @@ private:
     ref<Camera> mpCamera;
     ref<EnvMap> mpEnvMap;
     ref<ParticleSystem> mpParticles;
-    ref<BillboardGroup> mpBillboards;
+    ref<BillboardGroup> mpTerrainInfo;
 
     ref<RenderGraph> mpRenderGraph;
     ref<RasterPass> mpRasterPass;

@@ -11,6 +11,8 @@ ref<BillboardGroup> BillboardGroup::create(RenderContext* pRenderContext, ref<De
 
 void BillboardGroup::rasterize(RenderContext* pRenderContext, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera)
 {
+    FALCOR_PROFILE(pRenderContext, "BillboardGroup::rasterize");
+
     mpState->setFbo(pTargetFbo);
     mpState->setVao(mpVao);
     
@@ -58,9 +60,6 @@ BillboardGroup::BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevic
     mpState->setDepthStencilState(DepthStencilState::create(dsDesc));
     mpState->setBlendState(BlendState::create(blendDesc));
 
-    createQuadMesh(pDevice);
-    loadTextures(pRenderContext, pDevice);
-
     mInstances.resize(mDesc.maxCount);
     for (uint32_t i = 0; i < mDesc.maxCount; i++)
         mInstances[i] = {{0.f, 0.f, 0.f}, i, {1.f, 1.f}, {1.f, 1.f, 1.f, 1.f}};
@@ -74,6 +73,8 @@ BillboardGroup::BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevic
         mInstances.data(),
         false
     );
+
+    createQuadMesh(pDevice);
 }
 
 void BillboardGroup::createQuadMesh(ref<Device> pDevice)
@@ -109,16 +110,8 @@ void BillboardGroup::createQuadMesh(ref<Device> pDevice)
     );
 }
 
-void BillboardGroup::loadTextures(RenderContext* pRenderContext, ref<Device> pDevice)
+void BillboardGroup::loadTextures(RenderContext* pRenderContext, ref<Device> pDevice, const std::vector<std::string>& paths)
 {
-    std::vector<std::string> paths = {
-        "AnitoPlume/tooltips/Tooltip-Malaki.png",
-        "AnitoPlume/tooltips/Tooltip-Munti.png",
-        "AnitoPlume/tooltips/Tooltip-Piraso.png",
-        "AnitoPlume/tooltips/Tooltip-Calauit.png",
-        "AnitoPlume/tooltips/Tooltip-Tabaro.png",
-    };
-
     // Load each slice as a plain Texture2D first
     std::vector<ref<Texture>> staging;
     AssetResolver resolver = AssetResolver::getDefaultResolver();
@@ -171,13 +164,6 @@ void BillboardGroup::setPerFrameVars(const ref<Fbo>& pTargetFbo, ref<Camera> pCa
     var["BillboardCB"]["gMinAlphaDistance"] = mDesc.minAlphaDistance;
     var["BillboardCB"]["gMaxAlphaDistance"] = mDesc.maxAlphaDistance;
 }
-//
-//void BillboardGroup::setCount(uint32_t count)
-//{
-//    FALCOR_ASSERT(count <= (uint32_t)mInstances.size());
-//    mActiveCount = count;
-//    mUpdateInstances = true;
-//}
 
 void BillboardGroup::setInstance(uint32_t index, float3 worldPos, uint32_t texId, float2 size, float4 color)
 {
@@ -188,8 +174,7 @@ void BillboardGroup::setInstance(uint32_t index, float3 worldPos, uint32_t texId
 
 void BillboardGroup::updateInstances(RenderContext* pRenderContext)
 {
-    if (!mUpdateInstances || mInstances.size() == 0)
-        return;
+    if (!mUpdateInstances || mInstances.size() == 0) return;
     mpInstanceBuffer->setBlob(mInstances.data(), 0, mInstances.size() * sizeof(BillboardInstance));
     mUpdateInstances = false;
 }

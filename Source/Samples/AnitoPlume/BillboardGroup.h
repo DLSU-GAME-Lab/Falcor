@@ -73,14 +73,13 @@ public:
     // Call every frame to composite billboard instances onto pTargetFbo.
     void rasterize(RenderContext* pRenderContext, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera);
 
-    //void setCount(uint32_t count);
+    void loadTextures(RenderContext* pRenderContext, ref<Device> pDevice, const std::vector<std::string>& paths);
     void setInstance(uint32_t index, float3 worldPos, uint32_t texIndex, float2 size, float4 color);
     
 private:
     BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevice, Desc desc);
 
     void createQuadMesh(ref<Device> pDevice);
-    void loadTextures(RenderContext* pRenderContext, ref<Device> pDevice);
     void updateInstances(RenderContext* pRenderContext);
     void setPerFrameVars(const ref<Fbo>& pTargetFbo, ref<Camera> pCamera);
 
