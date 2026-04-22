@@ -1,26 +1,26 @@
 #include "PlumeManager.hpp"
 #include "PlumeTracker.hpp"
+
 #include <algorithm>
 
 PlumeManager* PlumeManager::sharedInstance = nullptr;
 
 PlumeManager::PlumeManager()
 {
-	timer.stop();
-	state = SimulatorState::Stopped;
-	t_step = 0.0f;
-	frame_count = 0;
+	mState = SimulatorState::Stopped;
+	mTStep = 0.0f;
+	mFrameCount = 0;
 
-	all_angles = false;
-	min_altitude = 0;
-	max_altitude = 10000;
-	altitude_step = 2000;
-	altitude_size = int(max_altitude / altitude_step) + 1;
-	for (unsigned int i = 0; i < altitude_size; i++)
+	mAllAngles = false;
+	mMinAltitude = 0;
+	mMaxAltitude = 10000;
+	mAltitudeStep = 2000;
+	mAltitudeSize = int(mMaxAltitude / mAltitudeStep) + 1;
+	for (unsigned int i = 0; i < (unsigned int)mAltitudeSize; i++)
 	{
-		wind_altitudes.push_back(i * altitude_step);
-		winds.push_back(wind_structure(0, 0));
-		this->deg_angle.push_back(0);
+		mWindAltitudes.push_back(i * mAltitudeStep);
+		mWinds.push_back(WindStructure(0, 0));
+		this->mDegAngle.push_back(0);
 	}
 }
 void PlumeManager::initialize()
@@ -37,231 +37,235 @@ PlumeManager* PlumeManager::getInstance()
 	return sharedInstance;
 }
 
-void PlumeManager::createPlume(unsigned int id, std::string ventName, vcl::vec3 ventLoc,EruptionParams eruptParams)
+void PlumeManager::createPlume(unsigned int id, std::string ventName, float3 ventLoc,EruptionParams eruptParams)
 {
-	this->plumes.push_back(Plume(id, ventName, ventLoc, eruptParams));
-	this->toUpdate.push_back(false);
+	this->mPlumes.push_back(Plume(id, ventName, ventLoc, eruptParams));
+	this->mToUpdate.push_back(false);
 	PlumeTracker::getInstance()->addTrackerData();
 
-	this->sortedPlumes.clear();
-	for (int i = 0; i < this->plumes.size(); i++)
+	this->mSortedPlumes.clear();
+	for (int i = 0; i < this->mPlumes.size(); i++)
 	{
-		this->sortedPlumes.push_back(&this->plumes[i]);
+		this->mSortedPlumes.push_back(&this->mPlumes[i]);
 	}
 
 }
 void PlumeManager::setupTransitionValues(int dMaxSmoke, float fTransitionSpeed, float fTransitionDelay)
 {
-	for (int i = 0; i < this->plumes.size(); i++)
+	for (int i = 0; i < this->mPlumes.size(); i++)
 	{
-		this->plumes[i].setMaxSmoke(dMaxSmoke);
-		this->plumes[i].setTransitionSpeed(fTransitionSpeed);
-		this->plumes[i].setTranstionDelay(fTransitionDelay);
+		this->mPlumes[i].setMaxSmoke(dMaxSmoke);
+		this->mPlumes[i].setTransitionSpeed(fTransitionSpeed);
+		this->mPlumes[i].setTranstionDelay(fTransitionDelay);
 		for (int j = 0; j < dMaxSmoke; j++)
 		{
-			this->plumes[i].getTransitionLifetime().push_back(this->plumes[i].getTransitionDelay() * j);
+			this->mPlumes[i].getTransitionLifetime().push_back(this->mPlumes[i].getTransitionDelay() * j);
 
 		}
 
 	}
 }
 
-void PlumeManager::setupTerrainStruct(vcl::buffer<vcl::vec3>& position, vcl::buffer<vcl::vec3>& normal, vcl::mesh_drawable terrain)
+void PlumeManager::setupTerrainStruct(std::vector<float3>& position, std::vector<float3>& normal, Vao terrain, float4x4 transform)
 {
-	this->terrain_struct.fill_height_field(position, normal, terrain);
+	this->mTerrainStruct.fill_height_field(position, normal, terrain, transform);
 }
 
-void PlumeManager::update()
+void PlumeManager::update(float dt)
 {
-	// Force constant time step
-	float dt = timer.update();
-	t_step = dt <= 1e-6f ? 0.0f : timer.scale * 0.002f; //0.0003f
 
-	for (int i = 0; i < this->plumes.size(); i++)
+    float scale = 1.0f; // adjust if needed
+    if(dt <= 1e-6f)
+        mTStep = 0.0f;
+    else
+        mTStep = scale * 0.002f;
+
+
+	for (int i = 0; i < this->mPlumes.size(); i++)
 	{
-		if (this->toUpdate[i])
+		if (this->mToUpdate[i])
 		{
-			this->plumes[i].set_t_step(t_step);
-			//this->plumes[i].remove_colliding_smoke();
-			this->plumes[i].remove_smoke_layers();
-			this->plumes[i].update_smoke_layer_init();
+			this->mPlumes[i].set_t_step(mTStep);
+			//this->mPlumes[i].remove_colliding_smoke();
+			this->mPlumes[i].remove_smoke_layers();
+			this->mPlumes[i].update_smoke_layer_init();
 		}
 	}
 
 	for (unsigned int nb_steps_per_frame = 0; nb_steps_per_frame < 10; nb_steps_per_frame++)
 	{
-		for (int i = 0; i < this->plumes.size(); i++)
+		for (int i = 0; i < this->mPlumes.size(); i++)
 		{
-			if (this->toUpdate[i])
+			if (this->mToUpdate[i])
 			{
 				// update of layer and spheres
-				for (unsigned int id = 0; id < this->plumes[i].smoke_layers.size(); id++)
+				for (unsigned int id = 0; id < this->mPlumes[i].mSmokeLayers.size(); id++)
 				{
-					this->plumes[i].smoke_layer_update(id, computeWindVector(this->plumes[i].smoke_layers[id].center.z));
+					this->mPlumes[i].smoke_layer_update(id, computeWindVector(this->mPlumes[i].mSmokeLayers[id].center.z));
 				}
 
-				this->plumes[i].update_free_spheres();
-				if (frame_count % 100 == 0) this->plumes[i].falling_spheres_update(terrain_struct, 100);
+				this->mPlumes[i].update_free_spheres();
+				if (mFrameCount % 100 == 0) this->mPlumes[i].falling_spheres_update(mTerrainStruct, 100);
 
-				for (int id = this->plumes[i].free_spheres.size() - 1; id >= 0; id--)
+				for (int id = this->mPlumes[i].mFreeSpheres.size() - 1; id >= 0; id--)
 				{
-					this->plumes[i].update_stagnation_spheres(computeWindVector(this->plumes[i].free_spheres[id].center.z));
+					this->mPlumes[i].update_stagnation_spheres(computeWindVector(this->mPlumes[i].mFreeSpheres[id].center.z));
 				}
-				this->plumes[i].update_stagnation_spheres_position();
+				this->mPlumes[i].update_stagnation_spheres_position();
 
 				// update subspheres
-				//if (frame_count %50 == 0) update_subspheres_params();
+				//if (mFrameCount %50 == 0) update_subspheres_params();
 
 				// export (comment or uncomment)
-				//if (export_data && frame_count % 50 == 0) export_spheres();
+				//if (export_data && mFrameCount % 50 == 0) export_spheres();
 
 				//// store data for replay
-				//if (!export_data && frame_count %50 == 0)
+				//if (!export_data && mFrameCount %50 == 0)
 				//{
-				//    smoke_layers_frames.push_back(smoke_layers);
-				//    free_spheres_frames.push_back(free_spheres);
+				//    smoke_layers_frames.push_back(mSmokeLayers);
+				//    free_spheres_frames.push_back(mFreeSpheres);
 				//    stagnate_spheres_frames.push_back(stagnate_spheres);
-				//    falling_spheres_frames.push_back(falling_spheres);
-				//    falling_spheres_buffers_frames.push_back(falling_spheres_buffers);
+				//    falling_spheres_frames.push_back(mFallingSpheres);
+				//    falling_spheres_buffers_frames.push_back(mFallingSpheresBuffers);
 				//}
 			}
 		}
-		frame_count++;
+		mFrameCount++;
 	}
 
-	for (int i = 0; i < this->plumes.size(); i++)
+	for (int i = 0; i < this->mPlumes.size(); i++)
 	{
-		if (this->toUpdate[i]) PlumeTracker::getInstance()->checkSmokePosition(&this->plumes[i]);
+		if (this->mToUpdate[i]) PlumeTracker::getInstance()->checkSmokePosition(&this->mPlumes[i]);
 	}
 
 }
 
 bool PlumeManager::getToUpdate(unsigned int plumeID)
 {
-	if (plumeID >= this->toUpdate.size()) return false;
-	return this->toUpdate[plumeID];
+	if (plumeID >= this->mToUpdate.size()) return false;
+	return this->mToUpdate[plumeID];
 }
 
-void PlumeManager::setToUpdate(bool toUpdate)
+void PlumeManager::setToUpdate(bool ToUpdate)
 {
-	for (int i = 0; i < this->toUpdate.size(); i++)
-		this->toUpdate[i] = toUpdate;
+	for (int i = 0; i < this->mToUpdate.size(); i++)
+		this->mToUpdate[i] = ToUpdate;
 }
 
 void PlumeManager::setToUpdate(unsigned int plumeID, bool toUpdate)
 {
-	if (plumeID >= this->toUpdate.size()) return;
-	this->toUpdate[plumeID] = toUpdate;
+	if (plumeID >= this->mToUpdate.size()) return;
+	this->mToUpdate[plumeID] = toUpdate;
 }
 
-void PlumeManager::setTimerScale(float scale)
-{
-	timer.scale = scale;
-}
 
 void PlumeManager::playSimulation()
 {
-	if (state == SimulatorState::Stopped)
+	if (mState == SimulatorState::Stopped)
 		this->reset();
-
-	timer.start();
-	state = SimulatorState::Playing;
+     // find way to fix timer to not rely on vcl::timer
+	/*timer.start();*/
+	mState = SimulatorState::Playing;
 }
 
 void PlumeManager::pauseSimulation()
 {
-	timer.stop();
-	state = SimulatorState::Paused;
+    // find way to fix timer to not rely on vcl::timer
+	/*timer.stop();*/
+	mState = SimulatorState::Paused;
 }
 
 void PlumeManager::stopSimulation()
 {
-	timer.stop();
-	frame_count = 0;
-	state = SimulatorState::Stopped;
+    // find way to fix timer to not rely on vcl::timer
+	/*timer.stop();*/
+	mFrameCount = 0;
+	mState = SimulatorState::Stopped;
 	PlumeTracker::getInstance()->resetPlumePositions();
 	this->reset();
 }
 
 void PlumeManager::reset()
 {
-	for (int i = 0; i < this->plumes.size(); i++)
+	for (int i = 0; i < this->mPlumes.size(); i++)
 	{
-		this->plumes[i].reset();
+		this->mPlumes[i].reset();
 	}
 }
 
-void PlumeManager::sortNearestPlumes(vcl::vec3 camPos)
+void PlumeManager::sortNearestPlumes(float3 camPos)
 {
-	std::sort(this->sortedPlumes.begin(), this->sortedPlumes.end(),
+	std::sort(this->mSortedPlumes.begin(), this->mSortedPlumes.end(),
 		[camPos](Plume* a, Plume* b)
 		{
-			float distA = vcl::sqr_mag(a->getPosition() - camPos);
-			float distB = vcl::sqr_mag(b->getPosition() - camPos);
+            float3 aDist = a->getPosition() - camPos;
+            float3 bDist = b->getPosition() - camPos;
+			float distA = dot(aDist, aDist);
+			float distB = dot(bDist, bDist);
 			return distA > distB;
 		});
 }
 
 SimulatorState PlumeManager::getState() const
 {
-	return this->state;
+	return this->mState;
 }
 
 std::vector<Plume>& PlumeManager::getPlumes()
 {
-	return this->plumes;
+	return this->mPlumes;
 }
 
 std::vector<Plume*>& PlumeManager::getSortedPlumes()
 {
-	return this->sortedPlumes;
+	return this->mSortedPlumes;
 }
 
 Plume& PlumeManager::getPlume(unsigned int plumeID)
 {
-	return this->plumes[plumeID];
+	return this->mPlumes[plumeID];
 }
 
 void PlumeManager::setLinearWind(float linearWindBase)
 {
-	for (unsigned int i = 0; i < winds.size(); i++)
+	for (unsigned int i = 0; i < mWinds.size(); i++)
 	{		
-		if (i > 3) winds[i].intensity = 3 * linearWindBase;
-		else winds[i].intensity = i * linearWindBase;
+		if (i > 3) mWinds[i].intensity = 3 * linearWindBase;
+		else mWinds[i].intensity = i * linearWindBase;
 
-		if (winds[i].intensity == 0) winds[i].intensity = 1;
-		winds[i] = wind_structure(winds[i].intensity, deg_angle[i]);
-		winds[i].recalc_wind_vector();
+		if (mWinds[i].intensity == 0) mWinds[i].intensity = 1;
+		mWinds[i] = WindStructure(mWinds[i].intensity, mDegAngle[i]);
+		mWinds[i].recalcWindVector();
 	}
 }
 
 void PlumeManager::setWindIntensity(unsigned int index, int intensity)
 {
-	if (index >= winds.size()) return;
+	if (index >= mWinds.size()) return;
 
-	winds[index] = wind_structure(intensity, deg_angle[index]);
-	winds[index].recalc_wind_vector();
+	mWinds[index] = WindStructure(intensity, mDegAngle[index]);
+	mWinds[index].recalcWindVector();
 }
 
 void PlumeManager::setWindAngle(unsigned int index, int angle)
 {
-	if (index >= winds.size()) return;
+	if (index >= mWinds.size()) return;
 
-	deg_angle[index] = angle;
-	winds[index] = wind_structure(winds[index].intensity, deg_angle[index]);
-	winds[index].recalc_wind_vector();
+	mDegAngle[index] = angle;
+	mWinds[index] = WindStructure(mWinds[index].intensity, mDegAngle[index]);
+	mWinds[index].recalcWindVector();
 }
 
 void PlumeManager::setWind(unsigned int index, int intensity, int angle)
 {
-	deg_angle[index] = angle;
-	winds[index] = wind_structure(intensity, deg_angle[index]);
-	winds[index].recalc_wind_vector();
+	mDegAngle[index] = angle;
+	mWinds[index] = WindStructure(intensity, mDegAngle[index]);
+	mWinds[index].recalcWindVector();
 }
 
 void PlumeManager::setAllWindIntensities(int intensity)
 {
-	for (unsigned int i = 0; i < winds.size(); i++)
+	for (unsigned int i = 0; i < mWinds.size(); i++)
 	{
 		setWindIntensity(i, intensity);
 	}
@@ -269,7 +273,7 @@ void PlumeManager::setAllWindIntensities(int intensity)
 
 void PlumeManager::setAllWindAngles(int angle)
 {
-	for (int i = 0; i < winds.size(); i++)
+	for (int i = 0; i < mWinds.size(); i++)
 	{
 		setWindAngle(i, angle);
 	}
@@ -277,103 +281,103 @@ void PlumeManager::setAllWindAngles(int angle)
 
 void PlumeManager::setAllWinds(int intensity, int angle)
 {
-	for (int i = 0; i < winds.size(); i++)
+	for (int i = 0; i < mWinds.size(); i++)
 	{
 		setWind(i, intensity, angle);
 	}
 }
 
-vcl::vec3 PlumeManager::computeWindVector(float height)
+float3 PlumeManager::computeWindVector(float height)
 {
 	// find altitude interval
 	unsigned int low_altitude_idx = 0;
-	for (unsigned int i = 0; i < wind_altitudes.size(); i++)
+	for (unsigned int i = 0; i < mWindAltitudes.size(); i++)
 	{
-		if (wind_altitudes[i] < height)
+		if (mWindAltitudes[i] < height)
 		{
 			low_altitude_idx = i;
 		}
 	}
 
 	// compute wind vec by interpolating
-	if (low_altitude_idx == wind_altitudes.size() - 1)
+	if (low_altitude_idx == mWindAltitudes.size() - 1)
 	{
-		return winds[low_altitude_idx].wind_vector;
+		return mWinds[low_altitude_idx].windVector;
 	}
 	else
 	{
-		float low_height = (float)wind_altitudes[low_altitude_idx];
-		float high_height = (float)wind_altitudes[low_altitude_idx + 1];
+		float low_height = (float)mWindAltitudes[low_altitude_idx];
+		float high_height = (float)mWindAltitudes[low_altitude_idx + 1];
 		float lambda = (height - low_height) / (high_height - low_height);
-		vcl::vec3 interpo_wind = winds[low_altitude_idx].wind_vector + lambda * (winds[low_altitude_idx + 1].wind_vector - winds[low_altitude_idx].wind_vector);
+		float3 interpo_wind = mWinds[low_altitude_idx].windVector + lambda * (mWinds[low_altitude_idx + 1].windVector - mWinds[low_altitude_idx].windVector);
 		return interpo_wind;
 	}
 }
 
-vcl::vec3 PlumeManager::getAverageWindDirection()
+float3 PlumeManager::getAverageWindDirection()
 {
-	vcl::vec3 winds_vec = { 0,0,0 };
-	for (int i = 0; i < winds.size(); i++)
+	float3 mWinds_vec = { 0,0,0 };
+	for (int i = 0; i < mWinds.size(); i++)
 	{
-		winds_vec += winds[i].wind_vector;
+		mWinds_vec += mWinds[i].windVector;
 	}
 
-	float winds_squared_x = winds_vec.x * winds_vec.x;
-	float winds_squared_y = winds_vec.y * winds_vec.y;
-	float winds_squared_z = winds_vec.z * winds_vec.z;
+	float mWinds_squared_x = mWinds_vec.x * mWinds_vec.x;
+	float mWinds_squared_y = mWinds_vec.y * mWinds_vec.y;
+	float mWinds_squared_z = mWinds_vec.z * mWinds_vec.z;
 
-	float mag = sqrt(winds_squared_x + winds_squared_y + winds_squared_z);
-	vcl::vec3 avg_wind_direction = { 0, 0, 0 };
-	if (mag != 0) avg_wind_direction = vcl::vec3(winds_vec.x, winds_vec.y, winds_vec.z) / mag;
+	float mag = sqrt(mWinds_squared_x + mWinds_squared_y + mWinds_squared_z);
+	float3 avg_wind_direction = { 0, 0, 0 };
+	if (mag != 0) avg_wind_direction = float3(mWinds_vec.x, mWinds_vec.y, mWinds_vec.z) / mag;
 	return avg_wind_direction;
 }
 
 float PlumeManager::getAverageWindAngle()
 {
-	vcl::vec3 windDir = getAverageWindDirection();
+	float3 windDir = getAverageWindDirection();
 	float windAngle = -1.0f;
 
 	if (windDir.x != 0 || windDir.y != 0 || windDir.z != 0)
-		windAngle = vcl::vector_to_angle(windDir);
+		windAngle = vectorToAngle(windDir);
 	return windAngle;
 }
 
 std::vector<int>& PlumeManager::getWindAlts()
 {
-	return this->wind_altitudes;
+	return this->mWindAltitudes;
 }
 
-std::vector<wind_structure>& PlumeManager::getWinds()
+std::vector<WindStructure>& PlumeManager::getWinds()
 {
-	return this->winds;
+	return this->mWinds;
 }
 
 std::vector<int>& PlumeManager::getDegAngle()
 {
-	return this->deg_angle;
+	return this->mDegAngle;
 }
 
 float PlumeManager::getMaxAlt()
 {
-	return this->max_altitude;
+	return this->mMaxAltitude;
 }
 
 float PlumeManager::getAltStep()
 {
-	return this->altitude_step;
+	return this->mAltitudeStep;
 }
 
 int PlumeManager::getAltSize()
 {
-	return this->altitude_size;
+	return this->mAltitudeSize;
 }
 
 unsigned int PlumeManager::getSmokeLayersCount()
 {
 	unsigned int smokeLayersCount = 0;
-	for (int i = 0; i < this->plumes.size(); i++)
+	for (int i = 0; i < this->mPlumes.size(); i++)
 	{
-		smokeLayersCount += this->plumes[i].smoke_layers.size();
+		smokeLayersCount += this->mPlumes[i].mSmokeLayers.size();
 	}
 	return smokeLayersCount;
 }
@@ -381,14 +385,14 @@ unsigned int PlumeManager::getSmokeLayersCount()
 unsigned int PlumeManager::getFreeSphereCount()
 {
 	unsigned int totalSphereCount = 0;
-	for (int i = 0; i < this->plumes.size(); i++)
+	for (int i = 0; i < this->mPlumes.size(); i++)
 	{
-		totalSphereCount += this->plumes[i].free_spheres.size();
-		totalSphereCount += this->plumes[i].falling_spheres.size();
+		totalSphereCount += this->mPlumes[i].mFreeSpheres.size();
+		totalSphereCount += this->mPlumes[i].mFallingSpheres.size();
 
-		for (int j = 0; j < this->plumes[i].falling_spheres_buffers.size(); j++)
+		for (int j = 0; j < this->mPlumes[i].mFallingSpheresBuffers.size(); j++)
 		{
-			totalSphereCount += this->plumes[i].falling_spheres_buffers[j].size();
+			totalSphereCount += this->mPlumes[i].mFallingSpheresBuffers[j].size();
 		}
 	}
 
@@ -398,11 +402,18 @@ unsigned int PlumeManager::getFreeSphereCount()
 unsigned int PlumeManager::getSubsphereCount()
 {
 	unsigned int totalSphereCount = 0;
-	for (int i = 0; i < this->plumes.size(); i++)
+	for (int i = 0; i < this->mPlumes.size(); i++)
 	{
-		totalSphereCount += this->plumes[i].s2_spheres.size();
-		totalSphereCount += this->plumes[i].s3_spheres.size();
+		totalSphereCount += this->mPlumes[i].mS2Spheres.size();
+		totalSphereCount += this->mPlumes[i].mS3Spheres.size();
 	}
 
 	return totalSphereCount;
+}
+
+float PlumeManager::vectorToAngle(const float3& v)
+{
+    float radians = atan2(v.y, v.x);
+    radians = (radians < 0.0f) ? radians + 2.0f * 3.14159265f : radians;
+    return radians * (180.0f / 3.14159265f); 
 }

@@ -2,32 +2,31 @@
 #include "vector"
 #include "unordered_map"
 #include "string"
-#include "scenes/sources/smoke/Plume.hpp"
+#include "Plume.hpp"
 
 enum class SimulatorState { Stopped, Playing, Paused };
 
 class PlumeManager
 {
 private:
-	SimulatorState state;
-	vcl::timer_event timer;
-	float t_step;
-	unsigned int frame_count;
+    SimulatorState mState;
+	float mTStep;
+	unsigned int mFrameCount;
 
-	std::vector<Plume> plumes;
-	std::vector<Plume*> sortedPlumes;
-	std::vector<bool> toUpdate;
-	std::vector<int> wind_altitudes;
-	std::vector<wind_structure> winds;
-	terrain_structure terrain_struct;
+	std::vector<Plume> mPlumes;
+	std::vector<Plume*> mSortedPlumes;
+	std::vector<bool> mToUpdate;
+	std::vector<int> mWindAltitudes;
+	std::vector<WindStructure> mWinds;
+	TerrainStructure mTerrainStruct;
 
-	float min_altitude;
-	float max_altitude;
-	float altitude_step;
-	int altitude_size;
+	float mMinAltitude;
+	float mMaxAltitude;
+	float mAltitudeStep;
+	int mAltitudeSize;
 
-	std::vector<int> deg_angle; // UI wind angles
-	bool all_angles; // UI toggle
+	std::vector<int> mDegAngle; // UI wind angles
+	bool mAllAngles; // UI toggle
 
 public:
 	static PlumeManager* getInstance();
@@ -35,10 +34,10 @@ public:
 	static void destroy();
 
 public:
-	void createPlume(unsigned int id, std::string ventName, vcl::vec3 ventLoc, EruptionParams eruptParams);
+	void createPlume(unsigned int id, std::string ventName, float3 ventLoc, EruptionParams eruptParams);
 	void setupTransitionValues(int maxSmoke, float transitionSpeed, float transitionDelay);
-	void setupTerrainStruct(vcl::buffer<vcl::vec3>& position, vcl::buffer<vcl::vec3>& normal, vcl::mesh_drawable terrain);
-	void update();
+     void setupTerrainStruct(std::vector<float3>& position, std::vector<float3>& normal, Vao terrain, float4x4 transform);
+	void update(float dt);
 
 	bool getToUpdate(unsigned int plumeID);
 	void setToUpdate(bool toUpdate);
@@ -49,7 +48,7 @@ public:
 	void pauseSimulation();
 	void stopSimulation();
 	void reset();
-	void sortNearestPlumes(vcl::vec3 camPos);
+	void sortNearestPlumes(float3 camPos);
 
 	SimulatorState getState() const;
 	std::vector<Plume>& getPlumes();
@@ -66,11 +65,11 @@ public:
 	void setAllWindAngles(int angle);
 	void setAllWinds(int intensity, int angle);
 
-	vcl::vec3 computeWindVector(float height);
-	vcl::vec3 getAverageWindDirection();
+	float3 computeWindVector(float height);
+	float3 getAverageWindDirection();
 	float getAverageWindAngle();
 	std::vector<int>& getWindAlts();
-	std::vector<wind_structure>& getWinds();
+	std::vector<WindStructure>& getWinds();
 	std::vector<int>& getDegAngle();
 	float getMaxAlt();
 	float getAltStep();
@@ -78,8 +77,8 @@ public:
 	unsigned int getSmokeLayersCount();
 	unsigned int getFreeSphereCount();
 	unsigned int getSubsphereCount();
-
-//singleton Stuff
+    float vectorToAngle(const float3& v);
+        //singleton Stuff
 private:
 	PlumeManager();
 	PlumeManager(const PlumeManager&) {};

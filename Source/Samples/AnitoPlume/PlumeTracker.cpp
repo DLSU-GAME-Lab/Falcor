@@ -32,7 +32,7 @@ void PlumeTracker::destroy()
 
 void PlumeTracker::addTrackerData()
 {
-    this->data.push_back(TrackerData());
+    this->mData.push_back(TrackerData());
 }
 
 void PlumeTracker::loadData(std::string filePath)
@@ -48,9 +48,9 @@ void PlumeTracker::loadData(std::string filePath)
             for (std::string value; std::getline(ss, value, ',');)
                 cell.push_back(std::move(value));
 
-            this->locationNames.push_back(cell[0]);
-            this->arcStart.push_back(std::atof(cell[1].c_str()));
-            this->arcEnd.push_back(std::atof(cell[2].c_str()));
+            this->mLocationNames.push_back(cell[0]);
+            this->mArcStart.push_back(std::atof(cell[1].c_str()));
+            this->mArcEnd.push_back(std::atof(cell[2].c_str()));
         }
     }
     else std::cout << "[PlumeTracker] ERROR: File with path " << filePath << " could not be opened." << std::endl;
@@ -63,17 +63,17 @@ std::vector<std::string> PlumeTracker::getIntersectingLocations(float coneRadius
     std::vector<std::string> locNames;
     if (angle < 0.0f)
     {
-        angle = this->windAngle;
-        if (this->windAngle < 0.0f) return locNames;
+        angle = this->mWindAngle;
+        if (this->mWindAngle < 0.0f) return locNames;
     }
 
     float lowAngle = angle - coneRadius;
     float hiAngle = angle + coneRadius;
 
-    for (int i = 0; i < this->arcStart.size(); i++)
+    for (int i = 0; i < this->mArcStart.size(); i++)
     {
-        float locStart = this->arcStart[i];
-        float locEnd = this->arcEnd[i];
+        float locStart = this->mArcStart[i];
+        float locEnd = this->mArcEnd[i];
 
         if (locStart > locEnd)
         {
@@ -84,7 +84,7 @@ std::vector<std::string> PlumeTracker::getIntersectingLocations(float coneRadius
         if ((locStart <= lowAngle || locStart <= hiAngle) &&
             (locEnd >= lowAngle || locEnd >= hiAngle))
         {
-            locNames.push_back(this->locationNames[i]);
+            locNames.push_back(this->mLocationNames[i]);
         }
     }
 
@@ -93,62 +93,62 @@ std::vector<std::string> PlumeTracker::getIntersectingLocations(float coneRadius
 
 std::vector<std::string> PlumeTracker::getIntersectingLocations()
 {
-    return getIntersectingLocations(windAngle, getConeRadius());
+    return getIntersectingLocations(mWindAngle, getConeRadius());
 }
 
 void PlumeTracker::checkSmokePosition(Plume* plume)
 {
-    int smokeSize = plume->smoke_layers.size();
-    int sub = smokeSize / stepSize;
-    if (smokeSize < stepSize) return;
+    int smokeSize = plume->mSmokeLayers.size();
+    int sub = smokeSize / mStepSize;
+    if (smokeSize < mStepSize) return;
     for (int i = smokeSize - 1; i >= 0; i -= sub)
     {
         int index = (smokeSize - (i + 1)) / sub;
-        data[plume->getID()].setData(index, stepSize, plume->smoke_layers[i].center, plume->smoke_layers[i].r);
+        mData[plume->getID()].setData(index, mStepSize, plume->mSmokeLayers[i].center, plume->mSmokeLayers[i].r);
     }
 }
 
 unsigned int PlumeTracker::getDataCount()
 {
-    return data.size();
+    return mData.size();
 }
 
 std::vector<std::string>& PlumeTracker::getLocationNames()
 {
-    return this->locationNames;
+    return this->mLocationNames;
 }
 
-std::vector<vcl::vec3>& PlumeTracker::getPositions(unsigned int plumeID)
+std::vector<float3>& PlumeTracker::getPositions(unsigned int plumeID)
 {
-    return data[plumeID].positions;
+    return mData[plumeID].positions;
 }
 
 std::vector<float>& PlumeTracker::getRadii(unsigned int plumeID)
 {
-    return data[plumeID].radii;
+    return mData[plumeID].radii;
 }
 
 float PlumeTracker::getConeRadius() const
 {
     float coneRadius = 0.0f;
-    for (int i = 0; i < data.size(); i++) coneRadius += data[i].maxRadius;
+    for (int i = 0; i < mData.size(); i++) coneRadius += mData[i].maxRadius;
     return coneRadius;
 }
 
 void PlumeTracker::resetPlumePositions()
 {
-    for (int i = 0; i < data.size(); i++) data[i].reset();
+    for (int i = 0; i < mData.size(); i++) mData[i].reset();
 }
 
-void PlumeTracker::setWindDirection(vcl::vec3 windVector)
+void PlumeTracker::setWindDirection(float3 windVector)
 {
-    this->windVector = windVector;
+    this->mWindVector = windVector;
     if (windVector.x == 0 && windVector.y == 0 && windVector.z == 0)
-        this->windAngle = -1.0f;
-    else this->windAngle = vcl::vector_to_angle(windVector);
+        this->mWindAngle = -1.0f;
+    else this->mWindAngle = vectorToAngle(windVector);
 }
 
-void PlumeTracker::TrackerData::setData(unsigned int index, unsigned int maxSize, vcl::vec3 position, float radius)
+void PlumeTracker::TrackerData::setData(unsigned int index, unsigned int maxSize, float3 position, float radius)
 {
     if (index == this->positions.size())
     {
@@ -171,12 +171,18 @@ void PlumeTracker::TrackerData::reset()
     this->maxRadius = 0.0f;
 }
 
-vcl::vec3 PlumeTracker::getWindDirection() const
+float3 PlumeTracker::getWindDirection() const
 {
-    return this->windVector;
+    return this->mWindVector;
 }
 
 float PlumeTracker::getWindDirectionAngle() const
 {
-    return this->windAngle;
+    return this->mWindAngle;
+}
+float PlumeTracker::vectorToAngle(const float3& v)
+{
+    float radians = atan2(v.y, v.x);
+    radians = (radians < 0.0f) ? radians + 2.0f * 3.14159265f : radians;
+    return radians * (180.0f / 3.14159265f);
 }

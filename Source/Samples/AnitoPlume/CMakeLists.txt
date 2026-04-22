@@ -3,6 +3,12 @@ add_falcor_executable(AnitoPlume)
 target_sources(AnitoPlume PRIVATE
     AnitoPlume.cpp
     AnitoPlume.h
+    Plume.cpp
+    Plume.hpp
+    PlumeManager.cpp
+    PlumeManager.hpp
+    PlumeTracker.cpp
+    PlumeTracker.hpp
     ParticleSystem.cpp
     ParticleSystem.h
     BillboardGroup.cpp
