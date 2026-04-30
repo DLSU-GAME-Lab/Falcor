@@ -95,6 +95,7 @@ private:
     ref<Buffer> mpInstanceBuffer; // Per-instance structured buffer (GPU-side)
     std::vector<BillboardInstance> mInstances; // Per-instance data (CPU-side)
     bool mUpdateInstances = true; // whether to update the instance buffer on the next rasterize() call
+    float3 mLastCamPos = { 0, 0, 0 };
 
     ref<Buffer> mpVertexBuffer;
     ref<Buffer> mpIndexBuffer;

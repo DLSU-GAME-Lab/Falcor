@@ -175,21 +175,30 @@ void BillboardGroup::setInstance(uint32_t index, float3 worldPos, uint32_t texId
 void BillboardGroup::updateInstances(RenderContext* pRenderContext, const float3 cameraPos)
 {
     std::vector<BillboardInstance> sortedInstances = mInstances;
+
+    if (mLastCamPos.x != cameraPos.x ||
+        mLastCamPos.y != cameraPos.y ||
+        mLastCamPos.z != cameraPos.z)
+    {
+        mLastCamPos = cameraPos;
+        mUpdateInstances = true;
+    }
+
+    if (!mUpdateInstances || sortedInstances.size() == 0) return;
+
     std::sort(
         sortedInstances.begin(),
         sortedInstances.end(),
-        [this, cameraPos](const BillboardInstance& a, const BillboardInstance& b)
+        [cameraPos](const BillboardInstance& a, const BillboardInstance& b)
         {
             float da = BillboardGroup::lengthSquared(a.worldPos - cameraPos);
             float db = BillboardGroup::lengthSquared(b.worldPos - cameraPos);
 
             bool orderChanged = da > db;
-            mUpdateInstances |= orderChanged; // If the order changed, we need to update the instance buffer
-            return orderChanged;              // back-to-front
+            return orderChanged; // back-to-front
         }
     );
 
-    if (!mUpdateInstances || mInstances.size() == 0) return;
     mpInstanceBuffer->setBlob(sortedInstances.data(), 0, sortedInstances.size() * sizeof(BillboardInstance));
     mUpdateInstances = false;
 }

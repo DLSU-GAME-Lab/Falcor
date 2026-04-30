@@ -81,7 +81,7 @@ float4 psMain(VsOut pIn) : SV_Target
         color.a *= alpha;
     }
 
-    if (color.a < 0.1) discard;
+    if (color.a < 0.01) discard;
     else color *= pIn.color;
 
     // Simple alpha cutout — swap for blending if needed
