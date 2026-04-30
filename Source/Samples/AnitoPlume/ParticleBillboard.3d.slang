@@ -51,85 +51,79 @@ struct Particle
 
 StructuredBuffer<Particle> gParticles;
 StructuredBuffer<uint>     gAliveList;
+Texture2DArray             gTexArray;
+SamplerState               gSampler;
 
 cbuffer BillboardCB
 {
-    float4x4 gViewProj;
     float3   gCameraRight;
     float    _pad0;
     float3   gCameraUp;
     float    _pad1;
+    float4x4 gViewProj;
 };
 
-// TriangleStrip order: TL, BL, TR, BR
-// Triangle 1: TL, BL, TR
-// Triangle 2: BL, BR, TR
-// This winding tiles the quad flat with no crossing diagonals.
-static const float2 kCorners[4] =
+struct VsIn
 {
-    float2(-0.5,  0.5),   // 0: TL
-    float2(-0.5, -0.5),   // 1: BL
-    float2( 0.5,  0.5),   // 2: TR
-    float2( 0.5, -0.5),   // 3: BR
+    float2 localPos : POSITION;
+    float2 uv       : TEXCOORD;
 };
 
-static const float2 kUVs[4] =
-{
-    float2(0.0, 0.0),   // TL
-    float2(0.0, 1.0),   // BL
-    float2(1.0, 0.0),   // TR
-    float2(1.0, 1.0),   // BR
-};
 
-struct VSOut
+struct VsOut
 {
     float4 posH  : SV_Position;
-    float4 color : COLOR;
     float2 uv    : TEXCOORD;
+    float4 color : COLOR;
 };
 
-VSOut vsMain(uint vertID : SV_VertexID, uint instID : SV_InstanceID)
+
+[shader("vertex")]
+VsOut vsMain(VsIn vIn, uint instanceID : SV_InstanceID)
 {
-    uint particleIdx = gAliveList[instID];
+    uint particleIdx = gAliveList[instanceID];
     Particle p       = gParticles[particleIdx];
 
-    float2 corner = kCorners[vertID];
+    // Scale size by age — grow from 0 to full size over first 20% of lifetime
+    // This makes newly spawned particles invisible and grow quickly,
+    // eliminating the small dot artifacts near the emitter.
+    float t          = saturate(p.age / p.lifetime);
+    float sizescale  = saturate(t / 0.2f);
+    float scaledSize = p.size * sizescale;
 
-    // Apply per-particle rotation around billboard center
+    // Apply per-particle rotation
     float s = sin(p.rotation);
     float c = cos(p.rotation);
     float2 rotated = float2(
-        corner.x * c - corner.y * s,
-        corner.x * s + corner.y * c
+        vIn.localPos.x * c - vIn.localPos.y * s,
+        vIn.localPos.x * s + vIn.localPos.y * c
     );
 
     float3 worldPos = p.position
-                    + gCameraRight * rotated.x * p.size
-                    + gCameraUp    * rotated.y * p.size;
+                    + gCameraRight * (rotated.x * scaledSize)
+                    + gCameraUp    * (rotated.y * scaledSize);
 
-    VSOut o;
+    VsOut o;
     o.posH  = mul(gViewProj, float4(worldPos, 1.0));
+    o.uv    = vIn.uv;
     o.color = p.color;
-    o.uv    = kUVs[vertID];
     return o;
 }
 
-float4 psMain(VSOut i) : SV_Target
+[shader("pixel")]
+float4 psMain(VsOut i) : SV_Target
 {
-    // Remap UVs from [0,1] to [-1,1] so the center is at (0,0)
+    // Sample from slice 0 — add texId to Particle if variety is needed
+    float4 texColor = gTexArray.Sample(gSampler, float3(i.uv, 0.0));
+    float4 color    = texColor * i.color;
+
+    // Soft radial falloff for the default 1x1 white texture
     float2 uv   = i.uv * 2.0 - 1.0;
+    float  dist = length(uv);
+    float  alpha = saturate(1.0 - dist);
+    alpha = alpha * alpha;
+    color.a *= alpha;
 
-    // True radial distance from center — avoids the seam that dot(uv,uv)
-    // produces at the triangle diagonal boundary
-    float dist  = length(uv);
-
-    // Smooth falloff: fully opaque at center, transparent at edges
-    float alpha = saturate(1.0 - dist);
-    alpha = alpha * alpha;  // squared for a softer, more natural edge
-
-    float4 col = i.color;
-    col.a *= alpha;
-
-    if (col.a < 0.01) discard;
-    return col;
+    clip(color.a - 0.01f);
+    return color;
 }

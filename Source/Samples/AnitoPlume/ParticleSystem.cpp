@@ -1,9 +1,18 @@
 #include "ParticleSystem.h"
+#include "Core/AssetResolver.h" 
 
 ref<ParticleSystem> ParticleSystem::create(ref<Device> pDevice)
 {
     return ref<ParticleSystem>(new ParticleSystem(pDevice));
 }
+
+ParticleSystem::ParticleSystem(ref<Device> pDevice) : mpDevice(pDevice)
+{
+    initBuffers();
+    initComputePasses();
+    initBillboardPass();
+}
+
 
 // Call every frame — dispatches emit + update compute passes.
 void ParticleSystem::simulate(RenderContext* pRenderContext, float deltaTime)
@@ -45,30 +54,66 @@ void ParticleSystem::render(RenderContext* pRenderContext, const ref<Fbo> pTarge
 
     // Camera basis vectors for axis-aligned billboarding
     float4x4 view = pCamera->getViewMatrix();
-    float3 camRight = {view[0][0], view[1][0], view[2][0]};
-    float3 camUp = {view[0][1], view[1][1], view[2][1]};
+    //float3 camRight = {view[0][0], view[1][0], view[2][0]};
+    //float3 camUp    = {view[0][1], view[1][1], view[2][1]};
+    float3 camRight = float3(view[0][0], view[0][1], view[0][2]);
+    float3 camUp = float3(view[1][0], view[1][1], view[1][2]);
 
     // Bind buffers and constant data via the RasterPass root var
-    ShaderVar vars = mpBillboardPass->getRootVar();
-    vars["gParticles"] = mpParticleBuffer;
-    vars["gAliveList"] = mpAliveList;
+   // ShaderVar vars = mpBillboardPass->getRootVar();
+    auto var = mpBillboardVars->getRootVar();
+    var["gParticles"] = mpParticleBuffer;
+    var["gAliveList"] = mpAliveList;
+    var["gTexArray"] = mpParticleTexture;
+    var["gSampler"] = mpSampler;
 
-    vars["BillboardCB"]["gViewProj"] = pCamera->getViewProjMatrix();
-    vars["BillboardCB"]["gCameraRight"] = camRight;
-    vars["BillboardCB"]["gCameraUp"] = camUp;
+    var["BillboardCB"]["gViewProj"] = pCamera->getViewProjMatrix();
+    var["BillboardCB"]["gCameraRight"] = camRight;
+    var["BillboardCB"]["gCameraUp"] = camUp;
     // vars["BillboardCB"]["gCameraPosition"] = pCamera->getPosition();
 
-    mpBillboardPass->getState()->setFbo(pTargetFbo);
+   // mpBillboardPass->getState()->setFbo(pTargetFbo);
+    mpBillboardState->setFbo(pTargetFbo);
+    mpBillboardState->setVao(mpQuadVao);
 
-    pRenderContext->drawInstanced(mpBillboardPass->getState().get(), mpBillboardPass->getVars().get(), 4, aliveCount, 0, 0);
+   // pRenderContext->drawInstanced(mpBillboardPass->getState().get(), mpBillboardPass->getVars().get(), 4, aliveCount, 0, 0);
+    pRenderContext->drawIndexedInstanced(
+        mpBillboardState.get(),
+        mpBillboardVars.get(),
+        6, aliveCount, 0, 0, 0
+    );
 }
 
-ParticleSystem::ParticleSystem(ref<Device> pDevice) : mpDevice(pDevice)
+// ---------------------------------------------------------------------------
+// loadTexture() — optional smoke texture, mirrors BillboardGroup::loadTextures
+// ---------------------------------------------------------------------------
+void ParticleSystem::loadTexture(RenderContext* pRenderContext, const std::string& path)
 {
-    initBuffers();
-    initComputePasses();
-    initBillboardPass();
+    AssetResolver resolver = AssetResolver::getDefaultResolver();
+    std::filesystem::path resolved = resolver.resolvePath(path);
+    ref<Texture> src = Texture::createFromFile(mpDevice, resolved, true, true);
+    if (!src)
+    {
+        logWarning("ParticleSystem::loadTexture — failed to load '{}'", path);
+        return;
+    }
+
+    uint32_t w = src->getWidth();
+    uint32_t h = src->getHeight();
+    uint32_t mips = src->getMipCount();
+
+    mpParticleTexture = mpDevice->createTexture2D(w, h, src->getFormat(), mips, 1, nullptr, ResourceBindFlags::ShaderResource);
+
+    for (uint32_t mip = 0; mip < mips; mip++)
+    {
+        pRenderContext->copySubresource(
+            mpParticleTexture.get(), mpParticleTexture->getSubresourceIndex(0, mip), src.get(), src->getSubresourceIndex(0, mip)
+        );
+    }
+
+    logInfo("ParticleSystem::loadTexture — loaded '{}' ({}x{})", path, w, h);
 }
+
 
 void ParticleSystem::initBuffers()
 {
@@ -116,7 +161,8 @@ void ParticleSystem::initBuffers()
     // 8 bytes to read both deadCount and aliveCount at once
     mpStagingBuffer = mpDevice->createBuffer(
         sizeof(uint32_t) * 2,
-        ResourceBindFlags::None, MemoryType::ReadBack
+        ResourceBindFlags::None,
+        MemoryType::ReadBack
     );
 }
 
@@ -136,7 +182,23 @@ void ParticleSystem::initBillboardPass()
     billboardDesc.addShaderLibrary("Samples/AnitoPlume/ParticleBillboard.3d.slang").vsEntry("vsMain").psEntry("psMain");
     // billboardDesc.addTypeConformances(typeConformances);
 
-    mpBillboardPass = RasterPass::create(mpDevice, billboardDesc);
+    mpBillboardProgram = Program::create(mpDevice, billboardDesc);
+    mpBillboardVars = ProgramVars::create(mpDevice, mpBillboardProgram->getReflector());
+    //mpBillboardPass = RasterPass::create(mpDevice, billboardDesc);
+
+    // Sampler — same as BillboardGroup
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(
+        TextureFilteringMode::Linear,
+        TextureFilteringMode::Linear,
+        TextureFilteringMode::Linear
+    );
+    samplerDesc.setAddressingMode(
+        TextureAddressingMode::Clamp,
+        TextureAddressingMode::Clamp,
+        TextureAddressingMode::Clamp
+    );
+    mpSampler = mpDevice->createSampler(samplerDesc);
 
     // ── Blend: standard src-alpha over ────────────────────────────────────
     BlendState::Desc blendDesc;
@@ -152,19 +214,50 @@ void ParticleSystem::initBillboardPass()
 
     // ── Depth: test against scene depth, do not write ─────────────────────
     DepthStencilState::Desc dsDesc;
+    dsDesc.setDepthEnabled(true);
     dsDesc.setDepthWriteMask(false);
 
     // ── Rasterizer: no backface culling ───────────────────────────────────
     RasterizerState::Desc rsDesc;
     rsDesc.setCullMode(RasterizerState::CullMode::None);
 
-    // ── Topology: triangle strip, positions built in the vertex shader ─────
-    // RasterPass exposes its internal GraphicsState directly for cases like
-    // this where the topology or blend state need to differ from the default.
-    mpBillboardPass->getState()->setBlendState(BlendState::create(blendDesc));
-    mpBillboardPass->getState()->setDepthStencilState(DepthStencilState::create(dsDesc));
-    mpBillboardPass->getState()->setRasterizerState(RasterizerState::create(rsDesc));
-    mpBillboardPass->getState()->setVao(Vao::create(Vao::Topology::TriangleStrip));
+    // GraphicsState
+    mpBillboardState = GraphicsState::create(mpDevice);
+    mpBillboardState->setProgram(mpBillboardProgram);
+    mpBillboardState->setBlendState(BlendState::create(blendDesc));
+    mpBillboardState->setDepthStencilState(DepthStencilState::create(dsDesc));
+    mpBillboardState->setRasterizerState(RasterizerState::create(rsDesc));
+
+    // Quad VAO — identical to BillboardGroup::createQuadMesh()
+    struct QuadVertex
+    {
+        float2 position;
+        float2 uv;
+    };
+    QuadVertex verts[4] = {
+        {{-0.5f, 0.5f}, {0.f, 0.f}},  // TL
+        {{0.5f, 0.5f}, {1.f, 0.f}},   // TR
+        {{0.5f, -0.5f}, {1.f, 1.f}},  // BR
+        {{-0.5f, -0.5f}, {0.f, 1.f}}, // BL
+    };
+    uint16_t indices[6] = {0, 1, 2, 0, 2, 3}; // CCW two triangles
+
+    ref<VertexLayout> pLayout = VertexLayout::create();
+    ref<VertexBufferLayout> pBufLayout = VertexBufferLayout::create();
+    pBufLayout->addElement("POSITION", 0, ResourceFormat::RG32Float, 1, 0);
+    pBufLayout->addElement("TEXCOORD", sizeof(float2), ResourceFormat::RG32Float, 1, 1);
+    pLayout->addBufferLayout(0, pBufLayout);
+
+    mpQuadVB = mpDevice->createBuffer(sizeof(verts), ResourceBindFlags::Vertex, MemoryType::DeviceLocal, verts);
+    mpQuadIB = mpDevice->createBuffer(sizeof(indices), ResourceBindFlags::Index, MemoryType::DeviceLocal, indices);
+
+    Vao::BufferVec vbufs = {mpQuadVB};
+    mpQuadVao = Vao::create(Vao::Topology::TriangleList, pLayout, vbufs, mpQuadIB, ResourceFormat::R16Uint);
+    mpBillboardState->setVao(mpQuadVao);
+
+    // Default 1x1 white texture — replace with loadTexture() for smoke look
+    uint32_t white = 0xFFFFFFFF;
+    mpParticleTexture = mpDevice->createTexture2D(1, 1, ResourceFormat::RGBA8UnormSrgb, 1, 1, &white, ResourceBindFlags::ShaderResource);
 }
 
 // =========================================================================
@@ -198,21 +291,43 @@ void ParticleSystem::bindComputeResources(ShaderVar vars, float deltaTime)
 
 // Reads the alive count back to the CPU via a staging buffer.
 // Causes a GPU flush — replace with drawIndirect to eliminate the stall.
+//uint32_t ParticleSystem::readAliveCount(RenderContext* pRenderContext)
+//{
+//    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::CopySource);
+//
+//    pRenderContext->copyBufferRegion(
+//        mpStagingBuffer.get(), 0,
+//        mpCounters.get(), 0,
+//        sizeof(uint32_t) * 2
+//    );
+//
+//    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::UnorderedAccess);
+//    pRenderContext->submit(true);
+//
+//    const uint32_t* counters = static_cast<const uint32_t*>(mpStagingBuffer->map());
+//    uint32_t deadCount = counters[0];
+//    uint32_t aliveCount = counters[1];
+//    mpStagingBuffer->unmap();
+//
+//    logInfo("ParticleSystem: dead={} alive={}", deadCount, aliveCount);
+//
+//    return aliveCount;
+//}
+
+
+//no gpu stall
 uint32_t ParticleSystem::readAliveCount(RenderContext* pRenderContext)
 {
+    if (mpStagingBuffer)
+    {
+        const uint32_t* counters = static_cast<const uint32_t*>(mpStagingBuffer->map());
+        mCachedAliveCount = counters[1]; // aliveCount
+        mpStagingBuffer->unmap();
+    }
+
     pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::CopySource);
-
     pRenderContext->copyBufferRegion(mpStagingBuffer.get(), 0, mpCounters.get(), 0, sizeof(uint32_t) * 2);
-
     pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::UnorderedAccess);
-    pRenderContext->submit(true);
 
-    const uint32_t* counters = static_cast<const uint32_t*>(mpStagingBuffer->map());
-    uint32_t deadCount = counters[0];
-    uint32_t aliveCount = counters[1];
-    mpStagingBuffer->unmap();
-
-    logInfo("ParticleSystem: dead={} alive={}", deadCount, aliveCount);
-
-    return aliveCount;
+    return mCachedAliveCount;
 }
