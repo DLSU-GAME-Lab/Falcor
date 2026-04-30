@@ -17,7 +17,7 @@ void BillboardGroup::rasterize(RenderContext* pRenderContext, const ref<Fbo> pTa
     mpState->setVao(mpVao);
     
     setPerFrameVars(pTargetFbo, pCamera);
-    updateInstances(pRenderContext);
+    updateInstances(pRenderContext, pCamera->getPosition());
 
     pRenderContext->drawIndexedInstanced(mpState.get(), mpVars.get(), 6, mpInstanceBuffer->getElementCount(), 0, 0, 0);
 }
@@ -172,9 +172,24 @@ void BillboardGroup::setInstance(uint32_t index, float3 worldPos, uint32_t texId
     mUpdateInstances = true;
 }
 
-void BillboardGroup::updateInstances(RenderContext* pRenderContext)
+void BillboardGroup::updateInstances(RenderContext* pRenderContext, const float3 cameraPos)
 {
+    std::vector<BillboardInstance> sortedInstances = mInstances;
+    std::sort(
+        sortedInstances.begin(),
+        sortedInstances.end(),
+        [this, cameraPos](const BillboardInstance& a, const BillboardInstance& b)
+        {
+            float da = BillboardGroup::lengthSquared(a.worldPos - cameraPos);
+            float db = BillboardGroup::lengthSquared(b.worldPos - cameraPos);
+
+            bool orderChanged = da > db;
+            mUpdateInstances |= orderChanged; // If the order changed, we need to update the instance buffer
+            return orderChanged;              // back-to-front
+        }
+    );
+
     if (!mUpdateInstances || mInstances.size() == 0) return;
-    mpInstanceBuffer->setBlob(mInstances.data(), 0, mInstances.size() * sizeof(BillboardInstance));
+    mpInstanceBuffer->setBlob(sortedInstances.data(), 0, sortedInstances.size() * sizeof(BillboardInstance));
     mUpdateInstances = false;
 }

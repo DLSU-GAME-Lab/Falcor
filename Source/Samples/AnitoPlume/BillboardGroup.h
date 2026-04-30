@@ -80,8 +80,10 @@ private:
     BillboardGroup(RenderContext* pRenderContext, ref<Device> pDevice, Desc desc);
 
     void createQuadMesh(ref<Device> pDevice);
-    void updateInstances(RenderContext* pRenderContext);
+    void updateInstances(RenderContext* pRenderContext, const float3 cameraPos);
     void setPerFrameVars(const ref<Fbo>& pTargetFbo, ref<Camera> pCamera);
+
+    static float lengthSquared(const float3& v) { return v.x * v.x + v.y * v.y + v.z * v.z; };
 
     ref<Program> mpProgram;
     ref<ProgramVars> mpVars;
