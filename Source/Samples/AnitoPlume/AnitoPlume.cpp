@@ -181,6 +181,7 @@ void AnitoPlume::onGuiRender(Gui* pGui)
     renderPlumeDirectionTracker(pGui);
     renderProfiler(pGui);
 
+    renderParticleDebug(pGui);
     //renderGlobalUI(pGui);
 }
 
@@ -319,8 +320,8 @@ void AnitoPlume::renderRaster(RenderContext* pRenderContext, const ref<Fbo>& pTa
 
     mpRasterPass->getState()->setFbo(pTargetFbo);
     mpScene->rasterize(pRenderContext, mpRasterPass->getState().get(), mpRasterPass->getVars().get());
-    //mpParticles->simulate(pRenderContext, getGlobalClock().getDelta());
-    //mpParticles->render(pRenderContext,pTargetFbo, mpCamera);
+    mpParticles->simulate(pRenderContext, getGlobalClock().getDelta());
+    mpParticles->render(pRenderContext,pTargetFbo, mpCamera);
     if (mDisplayInfoUI) mpTerrainInfo->rasterize(pRenderContext, pTargetFbo, mpCamera);
 }
 
@@ -574,6 +575,57 @@ void AnitoPlume::renderProfiler(Gui* pGui)
 
     // TODO: Implement  the profiler
     widget.text(getFrameRate().getMsg());
+}
+
+void AnitoPlume::renderParticleDebug(Gui* pGui)
+{
+    Gui::Window widget(pGui, "Particle Debug", {300, 300}, {10, 400}, kDefaultWindowFlags);
+
+    // Manually position the emitter in world space
+    float3 emitterPos = mpParticles->mEmitterPos;
+    if (widget.var("Emitter Position", emitterPos, -FLT_MAX, FLT_MAX, 0.1f, false, "%.2f"))
+        mpParticles->mEmitterPos = emitterPos;
+
+    uint32_t emitPerFrame = mpParticles->mEmitPerFrame;
+    if (widget.var("Emit Per Frame", emitPerFrame, 0u, 1024u))
+        mpParticles->mEmitPerFrame = emitPerFrame;
+
+    float emitSpeed = mpParticles->mEmitSpeed;
+    if (widget.var("Emit Speed", emitSpeed, 0.f, 200.f, 0.1f))
+        mpParticles->mEmitSpeed = emitSpeed;
+
+    float3 emitDir = mpParticles->mEmitDirection;
+    if (widget.var("Emit Direction", emitDir, -1.f, 1.f, 0.01f, false, "%.3f"))
+        mpParticles->mEmitDirection = emitDir;
+
+    float spreadAngle = mpParticles->mSpreadAngle;
+    if (widget.var("Spread Angle", spreadAngle, 0.f, 1.57f, 0.01f))
+        mpParticles->mSpreadAngle = spreadAngle;
+
+    float3 gravity = mpParticles->mGravity;
+    if (widget.var("Gravity", gravity, -20.f, 20.f, 0.1f))
+        mpParticles->mGravity = gravity;
+
+    float minSize = mpParticles->mMinSize;
+    float maxSize = mpParticles->mMaxSize;
+    if (widget.var("Min Size", minSize, 0.f, 100.f, 0.1f))
+        mpParticles->mMinSize = minSize;
+    if (widget.var("Max Size", maxSize, 0.f, 100.f, 0.1f))
+        mpParticles->mMaxSize = maxSize;
+
+    float minLife = mpParticles->mMinLifetime;
+    float maxLife = mpParticles->mMaxLifetime;
+    if (widget.var("Min Lifetime", minLife, 0.f, 60.f, 0.1f))
+        mpParticles->mMinLifetime = minLife;
+    if (widget.var("Max Lifetime", maxLife, 0.f, 60.f, 0.1f))
+        mpParticles->mMaxLifetime = maxLife;
+
+    float4 startColor = mpParticles->mStartColor;
+    float4 endColor = mpParticles->mEndColor;
+    if (widget.var("Start Color", startColor, 0.f, 1.f, 0.01f))
+        mpParticles->mStartColor = startColor;
+    if (widget.var("End Color", endColor, 0.f, 1.f, 0.01f))
+        mpParticles->mEndColor = endColor;
 }
 
 void AnitoPlume::setupTerrainInfo(RenderContext* pRenderContext)

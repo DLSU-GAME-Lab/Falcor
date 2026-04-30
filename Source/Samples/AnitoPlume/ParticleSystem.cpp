@@ -8,20 +8,30 @@ ref<ParticleSystem> ParticleSystem::create(ref<Device> pDevice)
 // Call every frame — dispatches emit + update compute passes.
 void ParticleSystem::simulate(RenderContext* pRenderContext, float deltaTime)
 {
+    if (deltaTime <= 0.f)
+        return;
+
     mFrameSeed++;
 
-    // Reset alive counter each frame; dead counter is managed atomically
-    uint32_t zero = 0;
-    pRenderContext->updateBuffer(mpCounters.get(), &zero, sizeof(uint32_t), sizeof(uint32_t));
+    // Reset aliveCount on GPU only — deadCount is GPU-managed
+    mpResetPass->getRootVar()["gCounters"] = mpCounters;
+    mpResetPass->execute(pRenderContext, 1, 1, 1);
+    pRenderContext->uavBarrier(mpCounters.get());
 
     bindComputeResources(mpEmitPass->getRootVar(), deltaTime);
     bindComputeResources(mpUpdatePass->getRootVar(), deltaTime);
 
     // ── Emit ──────────────────────────────────────────────────────────────
     mpEmitPass->execute(pRenderContext, divUp(mEmitPerFrame, 64u), 1, 1);
+    pRenderContext->uavBarrier(mpParticleBuffer.get());
+    pRenderContext->uavBarrier(mpDeadList.get());
+    pRenderContext->uavBarrier(mpCounters.get());
 
     // ── Update ────────────────────────────────────────────────────────────
     mpUpdatePass->execute(pRenderContext, divUp(kMaxParticles, 64u), 1, 1);
+    pRenderContext->uavBarrier(mpAliveList.get());
+    pRenderContext->uavBarrier(mpParticleBuffer.get());
+    pRenderContext->uavBarrier(mpCounters.get());
 }
 
 // Call every frame after simulate() — composites billboards onto pTargetFbo.
@@ -46,11 +56,11 @@ void ParticleSystem::render(RenderContext* pRenderContext, const ref<Fbo> pTarge
     vars["BillboardCB"]["gViewProj"] = pCamera->getViewProjMatrix();
     vars["BillboardCB"]["gCameraRight"] = camRight;
     vars["BillboardCB"]["gCameraUp"] = camUp;
+    // vars["BillboardCB"]["gCameraPosition"] = pCamera->getPosition();
 
-    // 4 vertices per particle (triangle strip quad), no index buffer.
-    // RasterPass::execute() sets the FBO, scissors, and viewport then
-    // forwards to pRenderContext->drawIndexed() internally.
-    mpBillboardPass->drawIndexed(pRenderContext, pTargetFbo, 4, aliveCount);
+    mpBillboardPass->getState()->setFbo(pTargetFbo);
+
+    pRenderContext->drawInstanced(mpBillboardPass->getState().get(), mpBillboardPass->getVars().get(), 4, aliveCount, 0, 0);
 }
 
 ParticleSystem::ParticleSystem(ref<Device> pDevice) : mpDevice(pDevice)
@@ -102,10 +112,17 @@ void ParticleSystem::initBuffers()
         MemoryType::DeviceLocal,
         initCounters
     );
+
+    // 8 bytes to read both deadCount and aliveCount at once
+    mpStagingBuffer = mpDevice->createBuffer(
+        sizeof(uint32_t) * 2,
+        ResourceBindFlags::None, MemoryType::ReadBack
+    );
 }
 
 void ParticleSystem::initComputePasses()
 {
+    mpResetPass = ComputePass::create(mpDevice, "Samples/AnitoPlume/Particles.cs.slang", "resetCounters");
     mpEmitPass = ComputePass::create(mpDevice, "Samples/AnitoPlume/Particles.cs.slang", "emitParticles");
     mpUpdatePass = ComputePass::create(mpDevice, "Samples/AnitoPlume/Particles.cs.slang", "updateParticles");
 }
@@ -115,10 +132,9 @@ void ParticleSystem::initBillboardPass()
     // RasterPass takes a Program::Desc the same way HelloDXR constructs its
     // own raster passes — no manual GraphicsState or GraphicsVars needed.
     ProgramDesc billboardDesc;
-    //billboardDesc.addShaderModules(shaderModules);
+    // billboardDesc.addShaderModules(shaderModules);
     billboardDesc.addShaderLibrary("Samples/AnitoPlume/ParticleBillboard.3d.slang").vsEntry("vsMain").psEntry("psMain");
-    //billboardDesc.addTypeConformances(typeConformances);
-
+    // billboardDesc.addTypeConformances(typeConformances);
 
     mpBillboardPass = RasterPass::create(mpDevice, billboardDesc);
 
@@ -184,12 +200,19 @@ void ParticleSystem::bindComputeResources(ShaderVar vars, float deltaTime)
 // Causes a GPU flush — replace with drawIndirect to eliminate the stall.
 uint32_t ParticleSystem::readAliveCount(RenderContext* pRenderContext)
 {
-    ref<Buffer> pStaging = mpDevice->createBuffer(sizeof(uint32_t), ResourceBindFlags::None, MemoryType::ReadBack);
+    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::CopySource);
 
-    pRenderContext->copyBufferRegion(pStaging.get(), 0, mpCounters.get(), sizeof(uint32_t), sizeof(uint32_t));
+    pRenderContext->copyBufferRegion(mpStagingBuffer.get(), 0, mpCounters.get(), 0, sizeof(uint32_t) * 2);
+
+    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::UnorderedAccess);
     pRenderContext->submit(true);
 
-    const uint32_t count = *static_cast<const uint32_t*>(pStaging->map());
-    pStaging->unmap();
-    return count;
+    const uint32_t* counters = static_cast<const uint32_t*>(mpStagingBuffer->map());
+    uint32_t deadCount = counters[0];
+    uint32_t aliveCount = counters[1];
+    mpStagingBuffer->unmap();
+
+    logInfo("ParticleSystem: dead={} alive={}", deadCount, aliveCount);
+
+    return aliveCount;
 }
