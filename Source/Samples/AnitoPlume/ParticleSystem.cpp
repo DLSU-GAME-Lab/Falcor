@@ -84,9 +84,7 @@ void ParticleSystem::render(RenderContext* pRenderContext, const ref<Fbo> pTarge
     );
 }
 
-// ---------------------------------------------------------------------------
-// loadTexture() — optional smoke texture, mirrors BillboardGroup::loadTextures
-// ---------------------------------------------------------------------------
+
 void ParticleSystem::loadTexture(RenderContext* pRenderContext, const std::string& path)
 {
     AssetResolver resolver = AssetResolver::getDefaultResolver();
@@ -214,7 +212,7 @@ void ParticleSystem::initBillboardPass()
 
     // ── Depth: test against scene depth, do not write ─────────────────────
     DepthStencilState::Desc dsDesc;
-    dsDesc.setDepthEnabled(true);
+    dsDesc.setDepthEnabled(false);
     dsDesc.setDepthWriteMask(false);
 
     // ── Rasterizer: no backface culling ───────────────────────────────────
@@ -287,6 +285,8 @@ void ParticleSystem::bindComputeResources(ShaderVar vars, float deltaTime)
     vars["PerFrameCB"]["gEmitCount"] = mEmitPerFrame;
     vars["PerFrameCB"]["gMaxParticles"] = kMaxParticles;
     vars["PerFrameCB"]["gFrameSeed"] = mFrameSeed;
+    vars["PerFrameCB"]["gSpawnRadius"] = mSpawnRadius;
+    vars["PerFrameCB"]["gWindVelocity"] = mWindVelocity;
 }
 
 // Reads the alive count back to the CPU via a staging buffer.
@@ -315,19 +315,18 @@ void ParticleSystem::bindComputeResources(ShaderVar vars, float deltaTime)
 //}
 
 
-//no gpu stall
+// readAliveCount() — one-frame-behind read, no GPU stall
 uint32_t ParticleSystem::readAliveCount(RenderContext* pRenderContext)
 {
-    if (mpStagingBuffer)
-    {
-        const uint32_t* counters = static_cast<const uint32_t*>(mpStagingBuffer->map());
-        mCachedAliveCount = counters[1]; // aliveCount
-        mpStagingBuffer->unmap();
-    }
+    // read last frame's result
+    const uint32_t* counters = static_cast<const uint32_t*>(mpStagingBuffer->map());
+    mCachedAliveCount = counters[1]; // aliveCount at byte offset 4
+    mpStagingBuffer->unmap();
 
     pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::CopySource);
     pRenderContext->copyBufferRegion(mpStagingBuffer.get(), 0, mpCounters.get(), 0, sizeof(uint32_t) * 2);
     pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::UnorderedAccess);
+    // No submit(true)
 
     return mCachedAliveCount;
 }

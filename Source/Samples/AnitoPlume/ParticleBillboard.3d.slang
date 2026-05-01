@@ -26,13 +26,9 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 
-
 // ParticleBillboard.3d.slang
-// Billboard vertex + pixel shader for the AnitoPlume particle system.
-//
-// Draw call: DrawInstanced(4 verts, aliveCount instances)
-//   SV_VertexID   — selects one of the 4 quad corners (TriangleStrip)
-//   SV_InstanceID — indexes into gAliveList to find the particle slot
+// Billboard shader for AnitoPlume particle system.
+// Mirrors BillboardGroup.3d.slang — uses real quad VAO + drawIndexedInstanced.
 
 struct Particle
 {
@@ -69,7 +65,6 @@ struct VsIn
     float2 uv       : TEXCOORD;
 };
 
-
 struct VsOut
 {
     float4 posH  : SV_Position;
@@ -77,21 +72,22 @@ struct VsOut
     float4 color : COLOR;
 };
 
-
 [shader("vertex")]
 VsOut vsMain(VsIn vIn, uint instanceID : SV_InstanceID)
 {
     uint particleIdx = gAliveList[instanceID];
     Particle p       = gParticles[particleIdx];
 
-    // Scale size by age — grow from 0 to full size over first 20% of lifetime
-    // This makes newly spawned particles invisible and grow quickly,
-    // eliminating the small dot artifacts near the emitter.
-    float t          = saturate(p.age / p.lifetime);
-    float sizescale  = saturate(t / 0.2f);
-    float scaledSize = p.size * sizescale;
+    // ── Size scaling by age ───────────────────────────────────────────────
+    // Grow from 0 to full size over first 30% of lifetime so newly spawned
+    // particles are invisible and expand into the smoke cloud naturally.
+    // Shrink back to 0 over the last 10% so death is smooth.
+    float t         = saturate(p.age / p.lifetime);
+    float growFade  = saturate(t / 0.3f);                    // 0→1 in first 30%
+    float shrink    = 1.0 - saturate((t - 0.9f) / 0.1f);    // 1→0 in last 10%
+    float scaledSize = p.size * growFade * shrink;
 
-    // Apply per-particle rotation
+    // ── Per-particle rotation ─────────────────────────────────────────────
     float s = sin(p.rotation);
     float c = cos(p.rotation);
     float2 rotated = float2(
@@ -99,6 +95,7 @@ VsOut vsMain(VsIn vIn, uint instanceID : SV_InstanceID)
         vIn.localPos.x * s + vIn.localPos.y * c
     );
 
+    // ── Expand into world space ───────────────────────────────────────────
     float3 worldPos = p.position
                     + gCameraRight * (rotated.x * scaledSize)
                     + gCameraUp    * (rotated.y * scaledSize);
@@ -113,15 +110,15 @@ VsOut vsMain(VsIn vIn, uint instanceID : SV_InstanceID)
 [shader("pixel")]
 float4 psMain(VsOut i) : SV_Target
 {
-    // Sample from slice 0 — add texId to Particle if variety is needed
+    // Sample texture — slice 0 for now, add texId to Particle for variety
     float4 texColor = gTexArray.Sample(gSampler, float3(i.uv, 0.0));
     float4 color    = texColor * i.color;
 
-    // Soft radial falloff for the default 1x1 white texture
-    float2 uv   = i.uv * 2.0 - 1.0;
-    float  dist = length(uv);
+    // Soft radial falloff — smooth puff shape
+    float2 uv    = i.uv * 2.0 - 1.0;
+    float  dist  = length(uv);
     float  alpha = saturate(1.0 - dist);
-    alpha = alpha * alpha;
+    alpha = alpha * alpha * alpha;  // cubic for softer, more smoke-like edge
     color.a *= alpha;
 
     clip(color.a - 0.01f);

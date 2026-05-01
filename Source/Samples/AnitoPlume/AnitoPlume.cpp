@@ -590,21 +590,25 @@ void AnitoPlume::renderParticleDebug(Gui* pGui)
     if (widget.var("Emit Per Frame", emitPerFrame, 0u, 1024u))
         mpParticles->mEmitPerFrame = emitPerFrame;
 
-    float emitSpeed = mpParticles->mEmitSpeed;
-    if (widget.var("Emit Speed", emitSpeed, 0.f, 200.f, 0.1f))
-        mpParticles->mEmitSpeed = emitSpeed;
-
     float3 emitDir = mpParticles->mEmitDirection;
     if (widget.var("Emit Direction", emitDir, -1.f, 1.f, 0.01f, false, "%.3f"))
         mpParticles->mEmitDirection = emitDir;
 
+    float emitSpeed = mpParticles->mEmitSpeed;
+    if (widget.var("Emit Speed", emitSpeed, 0.f, 100.f, 0.5f))
+        mpParticles->mEmitSpeed = emitSpeed;
+
     float spreadAngle = mpParticles->mSpreadAngle;
-    if (widget.var("Spread Angle", spreadAngle, 0.f, 1.57f, 0.01f))
+    if (widget.var("Spread Angle", spreadAngle, 0.f, 10.0f, 0.01f))
         mpParticles->mSpreadAngle = spreadAngle;
 
     float3 gravity = mpParticles->mGravity;
     if (widget.var("Gravity", gravity, -20.f, 20.f, 0.1f))
         mpParticles->mGravity = gravity;
+
+    float3 wind = mpParticles->mWindVelocity;
+    if (widget.var("Wind Velocity", wind, -40.f, 40.f, 0.1f))
+        mpParticles->mWindVelocity = wind;
 
     float minSize = mpParticles->mMinSize;
     float maxSize = mpParticles->mMaxSize;
@@ -625,7 +629,7 @@ void AnitoPlume::renderParticleDebug(Gui* pGui)
     if (widget.var("Start Color", startColor, 0.f, 1.f, 0.01f))
         mpParticles->mStartColor = startColor;
     if (widget.var("End Color", endColor, 0.f, 1.f, 0.01f))
-        mpParticles->mEndColor = endColor;
+        mpParticles->mEndColor = endColor; 
 }
 
 void AnitoPlume::setupTerrainInfo(RenderContext* pRenderContext)
