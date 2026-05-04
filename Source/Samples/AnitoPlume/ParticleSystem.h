@@ -43,11 +43,11 @@ public:
     float3 mEmitterPos = {0.f, 0.f, 0.f};
     float3 mEmitDirection = {0.f, 1.f, 0.f}; // normalised emit axis
     float3 mGravity = {0.f, -1.f, 0.f};
-    float4 mStartColor = {1.f, 0.0f, 0.1f, 1.f}; // orange, fully opaque
-    float4 mEndColor = {0.3f, 0.3f, 0.3f, 0.f};  // grey, fully transparent
+    float4 mStartColor = {0.3f, 0.3f, 0.3f, 1.f}; // orange, fully opaque
+    float4 mEndColor = {0.1f, 0.1f, 0.1f, 0.f};  // grey, fully transparent
     float mEmitSpeed = 5.f;
     float mSpreadAngle = 0.4f; // half-angle cone in radians (~17 deg)
-    float mSpawnRadius = 10.f; // radius of spawn disc at emitter
+    float mSpawnRadius = 30.f; // radius of spawn disc at emitter
     float mMinLifetime = 1.5f; // seconds
     float mMaxLifetime = 10.0f;
     float mMinSize = 50.0f; // world units

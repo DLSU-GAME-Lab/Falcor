@@ -44,7 +44,7 @@ struct Particle
 };
 
 // ─── Resources ────────────────────────────────────────────────────────────────
-
+     
 StructuredBuffer<Particle> gParticles;
 StructuredBuffer<uint>     gAliveList;
 Texture2DArray             gTexArray;
@@ -110,7 +110,6 @@ VsOut vsMain(VsIn vIn, uint instanceID : SV_InstanceID)
 [shader("pixel")]
 float4 psMain(VsOut i) : SV_Target
 {
-    // Sample texture — slice 0 for now, add texId to Particle for variety
     float4 texColor = gTexArray.Sample(gSampler, float3(i.uv, 0.0));
     float4 color    = texColor * i.color;
 

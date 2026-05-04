@@ -1,5 +1,5 @@
 #include "ParticleSystem.h"
-#include "Core/AssetResolver.h" 
+#include "Core/AssetResolver.h"
 
 ref<ParticleSystem> ParticleSystem::create(ref<Device> pDevice)
 {
@@ -17,10 +17,16 @@ ParticleSystem::ParticleSystem(ref<Device> pDevice) : mpDevice(pDevice)
 // Call every frame — dispatches emit + update compute passes.
 void ParticleSystem::simulate(RenderContext* pRenderContext, float deltaTime)
 {
+    deltaTime = std::min(deltaTime, 0.033f);
+
     if (deltaTime <= 0.f)
         return;
 
     mFrameSeed++;
+
+    uint32_t safeEmitCount = std::min(mEmitPerFrame, mCachedAliveCount == 0 ? 2u : mEmitPerFrame);
+    uint32_t savedEmit = mEmitPerFrame;
+    mEmitPerFrame = safeEmitCount;
 
     // Reset aliveCount on GPU only — deadCount is GPU-managed
     mpResetPass->getRootVar()["gCounters"] = mpCounters;
@@ -41,6 +47,8 @@ void ParticleSystem::simulate(RenderContext* pRenderContext, float deltaTime)
     pRenderContext->uavBarrier(mpAliveList.get());
     pRenderContext->uavBarrier(mpParticleBuffer.get());
     pRenderContext->uavBarrier(mpCounters.get());
+
+    mEmitPerFrame = savedEmit;
 }
 
 // Call every frame after simulate() — composites billboards onto pTargetFbo.
@@ -127,7 +135,11 @@ void ParticleSystem::initBuffers()
 
     // Dead list — pre-fill with all indices (every slot free at start)
     std::vector<uint32_t> deadIndices(kMaxParticles);
-    std::iota(deadIndices.begin(), deadIndices.end(), 0);
+
+    for (uint32_t i = 0; i < kMaxParticles; i++)
+        deadIndices[i] = kMaxParticles - 1 - i;
+
+    //std::iota(deadIndices.begin(), deadIndices.end(), 0);
     mpDeadList = mpDevice->createStructuredBuffer(
         sizeof(uint32_t),
         kMaxParticles,
@@ -205,7 +217,7 @@ void ParticleSystem::initBillboardPass()
         BlendState::BlendOp::Add,
         BlendState::BlendOp::Add,
         BlendState::BlendFunc::SrcAlpha,
-        BlendState::BlendFunc::OneMinusSrcAlpha,
+        BlendState::BlendFunc::One,
         BlendState::BlendFunc::One,
         BlendState::BlendFunc::OneMinusSrcAlpha
     );
@@ -246,8 +258,18 @@ void ParticleSystem::initBillboardPass()
     pBufLayout->addElement("TEXCOORD", sizeof(float2), ResourceFormat::RG32Float, 1, 1);
     pLayout->addBufferLayout(0, pBufLayout);
 
-    mpQuadVB = mpDevice->createBuffer(sizeof(verts), ResourceBindFlags::Vertex, MemoryType::DeviceLocal, verts);
-    mpQuadIB = mpDevice->createBuffer(sizeof(indices), ResourceBindFlags::Index, MemoryType::DeviceLocal, indices);
+    mpQuadVB = mpDevice->createBuffer(
+        sizeof(verts),
+        ResourceBindFlags::Vertex,
+        MemoryType::DeviceLocal, verts
+    );
+
+    mpQuadIB = mpDevice->createBuffer(
+        sizeof(indices),
+        ResourceBindFlags::Index,
+        MemoryType::DeviceLocal,
+        indices
+    );
 
     Vao::BufferVec vbufs = {mpQuadVB};
     mpQuadVao = Vao::create(Vao::Topology::TriangleList, pLayout, vbufs, mpQuadIB, ResourceFormat::R16Uint);
@@ -255,7 +277,13 @@ void ParticleSystem::initBillboardPass()
 
     // Default 1x1 white texture — replace with loadTexture() for smoke look
     uint32_t white = 0xFFFFFFFF;
-    mpParticleTexture = mpDevice->createTexture2D(1, 1, ResourceFormat::RGBA8UnormSrgb, 1, 1, &white, ResourceBindFlags::ShaderResource);
+    mpParticleTexture = mpDevice->createTexture2D(
+        1, 1,
+        ResourceFormat::RGBA8UnormSrgb,
+        1, 1,
+        &white,
+        ResourceBindFlags::ShaderResource
+    );
 }
 
 // =========================================================================
@@ -291,42 +319,48 @@ void ParticleSystem::bindComputeResources(ShaderVar vars, float deltaTime)
 
 // Reads the alive count back to the CPU via a staging buffer.
 // Causes a GPU flush — replace with drawIndirect to eliminate the stall.
+uint32_t ParticleSystem::readAliveCount(RenderContext* pRenderContext)
+{
+    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::CopySource);
+
+    pRenderContext->copyBufferRegion(
+        mpStagingBuffer.get(), 0,
+        mpCounters.get(), 0,
+        sizeof(uint32_t) * 2
+    );
+
+    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::UnorderedAccess);
+    pRenderContext->submit(true);
+
+    const uint32_t* counters = static_cast<const uint32_t*>(mpStagingBuffer->map());
+    uint32_t deadCount = counters[0];
+    uint32_t aliveCount = counters[1];
+    mpStagingBuffer->unmap();
+
+    logInfo("ParticleSystem: dead={} alive={}", deadCount, aliveCount);
+
+    return aliveCount;
+}
+
+
+// readAliveCount() — one-frame-behind read, no GPU stall
 //uint32_t ParticleSystem::readAliveCount(RenderContext* pRenderContext)
 //{
-//    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::CopySource);
-//
-//    pRenderContext->copyBufferRegion(
-//        mpStagingBuffer.get(), 0,
-//        mpCounters.get(), 0,
-//        sizeof(uint32_t) * 2
-//    );
-//
-//    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::UnorderedAccess);
-//    pRenderContext->submit(true);
-//
+//    // Read last frame's result — no stall
 //    const uint32_t* counters = static_cast<const uint32_t*>(mpStagingBuffer->map());
 //    uint32_t deadCount = counters[0];
 //    uint32_t aliveCount = counters[1];
 //    mpStagingBuffer->unmap();
 //
-//    logInfo("ParticleSystem: dead={} alive={}", deadCount, aliveCount);
+//    logInfo("dead={} alive={}", deadCount, mCachedAliveCount);
 //
-//    return aliveCount;
+//    mCachedAliveCount = aliveCount;
+//
+//    // Kick off this frame's copy — GPU runs freely
+//    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::CopySource);
+//    pRenderContext->copyBufferRegion(mpStagingBuffer.get(), 0, mpCounters.get(), 0, sizeof(uint32_t) * 2);
+//    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::UnorderedAccess);
+//
+//    return mCachedAliveCount;
 //}
 
-
-// readAliveCount() — one-frame-behind read, no GPU stall
-uint32_t ParticleSystem::readAliveCount(RenderContext* pRenderContext)
-{
-    // read last frame's result
-    const uint32_t* counters = static_cast<const uint32_t*>(mpStagingBuffer->map());
-    mCachedAliveCount = counters[1]; // aliveCount at byte offset 4
-    mpStagingBuffer->unmap();
-
-    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::CopySource);
-    pRenderContext->copyBufferRegion(mpStagingBuffer.get(), 0, mpCounters.get(), 0, sizeof(uint32_t) * 2);
-    pRenderContext->resourceBarrier(mpCounters.get(), Resource::State::UnorderedAccess);
-    // No submit(true)
-
-    return mCachedAliveCount;
-}

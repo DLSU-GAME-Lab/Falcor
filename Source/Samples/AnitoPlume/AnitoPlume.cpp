@@ -105,6 +105,7 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
     mpTaalMinimap = createGUITexture(kTaalMinimapPath);
 
     mpParticles = ParticleSystem::create(getDevice());
+    mpParticles->loadTexture(pRenderContext, "AnitoPlume/textures/smoke.png");
 
     setupTerrainInfo(pRenderContext);
     loadScene(kDefaultScene, getTargetFbo().get());
@@ -602,6 +603,10 @@ void AnitoPlume::renderParticleDebug(Gui* pGui)
     if (widget.var("Spread Angle", spreadAngle, 0.f, 10.0f, 0.01f))
         mpParticles->mSpreadAngle = spreadAngle;
 
+    float spawnRadius = mpParticles->mSpawnRadius;
+    if (widget.var("Spread Radius", spawnRadius, 10.f, 100.0f, 0.01f))
+        mpParticles->mSpawnRadius = spawnRadius;
+
     float3 gravity = mpParticles->mGravity;
     if (widget.var("Gravity", gravity, -20.f, 20.f, 0.1f))
         mpParticles->mGravity = gravity;
@@ -654,11 +659,11 @@ void AnitoPlume::setupTerrainInfo(RenderContext* pRenderContext)
 
     float2 size = {200, 200};
     float4 color = {1.f, 1.f, 1.f, 1.f};
-    mpTerrainInfo->setInstance(0, {0, 50, 0}, 0, size, color);
-    mpTerrainInfo->setInstance(1, {200, 50, 200}, 1, size, color);
-    mpTerrainInfo->setInstance(2, {-200, 50, -200}, 2, size, color);
-    mpTerrainInfo->setInstance(3, {200, 50, -200}, 3, size, color);
-    mpTerrainInfo->setInstance(4, {-200, 50, 200}, 4, size, color);
+    //mpTerrainInfo->setInstance(0, {0, 50, 0}, 0, size, color);
+    //mpTerrainInfo->setInstance(1, {200, 50, 200}, 1, size, color);
+    //mpTerrainInfo->setInstance(2, {-200, 50, -200}, 2, size, color);
+    //mpTerrainInfo->setInstance(3, {200, 50, -200}, 3, size, color);
+    //mpTerrainInfo->setInstance(4, {-200, 50, 200}, 4, size, color);
 }
 
 float AnitoPlume::windIntensityGraphCallback(void*, int32_t index)
