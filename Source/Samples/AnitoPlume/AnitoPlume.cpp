@@ -105,6 +105,7 @@ void AnitoPlume::onLoad(RenderContext* pRenderContext)
     mpTaalMinimap = createGUITexture(kTaalMinimapPath);
 
     mpParticles = ParticleSystem::create(getDevice());
+    mpParticles->loadTexture(pRenderContext, "AnitoPlume/textures/smoke.png");
 
     setupTerrainInfo(pRenderContext);
     loadScene(kDefaultScene, getTargetFbo().get());
@@ -181,6 +182,7 @@ void AnitoPlume::onGuiRender(Gui* pGui)
     renderPlumeDirectionTracker(pGui);
     renderProfiler(pGui);
 
+    renderParticleDebug(pGui);
     //renderGlobalUI(pGui);
 }
 
@@ -319,8 +321,8 @@ void AnitoPlume::renderRaster(RenderContext* pRenderContext, const ref<Fbo>& pTa
 
     mpRasterPass->getState()->setFbo(pTargetFbo);
     mpScene->rasterize(pRenderContext, mpRasterPass->getState().get(), mpRasterPass->getVars().get());
-    //mpParticles->simulate(pRenderContext, getGlobalClock().getDelta());
-    //mpParticles->render(pRenderContext,pTargetFbo, mpCamera);
+    mpParticles->simulate(pRenderContext, getGlobalClock().getDelta());
+    mpParticles->render(pRenderContext,pTargetFbo, mpCamera);
     if (mDisplayInfoUI) mpTerrainInfo->rasterize(pRenderContext, pTargetFbo, mpCamera);
 }
 
@@ -576,6 +578,65 @@ void AnitoPlume::renderProfiler(Gui* pGui)
     widget.text(getFrameRate().getMsg());
 }
 
+void AnitoPlume::renderParticleDebug(Gui* pGui)
+{
+    Gui::Window widget(pGui, "Particle Debug", {300, 300}, {10, 400}, kDefaultWindowFlags);
+
+    // Manually position the emitter in world space
+    float3 emitterPos = mpParticles->mEmitterPos;
+    if (widget.var("Emitter Position", emitterPos, -FLT_MAX, FLT_MAX, 0.1f, false, "%.2f"))
+        mpParticles->mEmitterPos = emitterPos;
+
+    uint32_t emitPerFrame = mpParticles->mEmitPerFrame;
+    if (widget.var("Emit Per Frame", emitPerFrame, 0u, 1024u))
+        mpParticles->mEmitPerFrame = emitPerFrame;
+
+    float3 emitDir = mpParticles->mEmitDirection;
+    if (widget.var("Emit Direction", emitDir, -1.f, 1.f, 0.01f, false, "%.3f"))
+        mpParticles->mEmitDirection = emitDir;
+
+    float emitSpeed = mpParticles->mEmitSpeed;
+    if (widget.var("Emit Speed", emitSpeed, 0.f, 100.f, 0.5f))
+        mpParticles->mEmitSpeed = emitSpeed;
+
+    float spreadAngle = mpParticles->mSpreadAngle;
+    if (widget.var("Spread Angle", spreadAngle, 0.f, 10.0f, 0.01f))
+        mpParticles->mSpreadAngle = spreadAngle;
+
+    float spawnRadius = mpParticles->mSpawnRadius;
+    if (widget.var("Spread Radius", spawnRadius, 10.f, 100.0f, 0.01f))
+        mpParticles->mSpawnRadius = spawnRadius;
+
+    float3 gravity = mpParticles->mGravity;
+    if (widget.var("Gravity", gravity, -20.f, 20.f, 0.1f))
+        mpParticles->mGravity = gravity;
+
+    float3 wind = mpParticles->mWindVelocity;
+    if (widget.var("Wind Velocity", wind, -40.f, 40.f, 0.1f))
+        mpParticles->mWindVelocity = wind;
+
+    float minSize = mpParticles->mMinSize;
+    float maxSize = mpParticles->mMaxSize;
+    if (widget.var("Min Size", minSize, 0.f, 100.f, 0.1f))
+        mpParticles->mMinSize = minSize;
+    if (widget.var("Max Size", maxSize, 0.f, 100.f, 0.1f))
+        mpParticles->mMaxSize = maxSize;
+
+    float minLife = mpParticles->mMinLifetime;
+    float maxLife = mpParticles->mMaxLifetime;
+    if (widget.var("Min Lifetime", minLife, 0.f, 60.f, 0.1f))
+        mpParticles->mMinLifetime = minLife;
+    if (widget.var("Max Lifetime", maxLife, 0.f, 60.f, 0.1f))
+        mpParticles->mMaxLifetime = maxLife;
+
+    float4 startColor = mpParticles->mStartColor;
+    float4 endColor = mpParticles->mEndColor;
+    if (widget.var("Start Color", startColor, 0.f, 1.f, 0.01f))
+        mpParticles->mStartColor = startColor;
+    if (widget.var("End Color", endColor, 0.f, 1.f, 0.01f))
+        mpParticles->mEndColor = endColor; 
+}
+
 void AnitoPlume::setupTerrainInfo(RenderContext* pRenderContext)
 {
     BillboardGroup::Desc bgDesc;
@@ -598,11 +659,11 @@ void AnitoPlume::setupTerrainInfo(RenderContext* pRenderContext)
 
     float2 size = {200, 200};
     float4 color = {1.f, 1.f, 1.f, 1.f};
-    mpTerrainInfo->setInstance(0, {0, 50, 0}, 0, size, color);
-    mpTerrainInfo->setInstance(1, {200, 50, 200}, 1, size, color);
-    mpTerrainInfo->setInstance(2, {-200, 50, -200}, 2, size, color);
-    mpTerrainInfo->setInstance(3, {200, 50, -200}, 3, size, color);
-    mpTerrainInfo->setInstance(4, {-200, 50, 200}, 4, size, color);
+    //mpTerrainInfo->setInstance(0, {0, 50, 0}, 0, size, color);
+    //mpTerrainInfo->setInstance(1, {200, 50, 200}, 1, size, color);
+    //mpTerrainInfo->setInstance(2, {-200, 50, -200}, 2, size, color);
+    //mpTerrainInfo->setInstance(3, {200, 50, -200}, 3, size, color);
+    //mpTerrainInfo->setInstance(4, {-200, 50, 200}, 4, size, color);
 }
 
 float AnitoPlume::windIntensityGraphCallback(void*, int32_t index)

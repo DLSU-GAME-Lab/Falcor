@@ -91,6 +91,7 @@ private:
     void renderDisplaySettings(Gui* pGui);
     void renderPlumeDirectionTracker(Gui* pGui);
     void renderProfiler(Gui* pGui);
+    void renderParticleDebug(Gui* pGui);
 
     void setupTerrainInfo(RenderContext* pRenderContext);
 

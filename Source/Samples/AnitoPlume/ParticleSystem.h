@@ -31,6 +31,30 @@ public:
     // Call every frame after simulate() — composites billboards onto pTargetFbo.
     void render(RenderContext* pRenderContext, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera);
 
+    // Optional — call once after create() to load a smoke texture.
+    // If not called, particles render as soft colored circles.
+    void loadTexture(RenderContext* pRenderContext, const std::string& path);
+
+
+    // =========================================================================
+    // Public tuning knobs — set any time before simulate()
+    // =========================================================================
+
+    float3 mEmitterPos = {0.f, 0.f, 0.f};
+    float3 mEmitDirection = {0.f, 1.f, 0.f}; // normalised emit axis
+    float3 mGravity = {0.f, -1.f, 0.f};
+    float4 mStartColor = {0.3f, 0.3f, 0.3f, 1.f}; // orange, fully opaque
+    float4 mEndColor = {0.1f, 0.1f, 0.1f, 0.f};  // grey, fully transparent
+    float mEmitSpeed = 5.f;
+    float mSpreadAngle = 0.4f; // half-angle cone in radians (~17 deg)
+    float mSpawnRadius = 30.f; // radius of spawn disc at emitter
+    float mMinLifetime = 1.5f; // seconds
+    float mMaxLifetime = 10.0f;
+    float mMinSize = 50.0f; // world units
+    float mMaxSize = 100.0f;
+    uint32_t mEmitPerFrame = 128;
+    float3 mWindVelocity = {0.f, 20.f, 1.f};
+
 private:
     ParticleSystem(ref<Device> pDevice);
 
@@ -47,7 +71,8 @@ private:
         float4 color;
         float size;
         uint32_t flags;
-        float _pad[2]; // 16-byte alignment -> 64 bytes total
+        float rotation;
+        uint32_t _pad; 
     };
     static_assert(sizeof(Particle) == 64, "Particle layout mismatch with shader");
 
@@ -69,23 +94,8 @@ private:
     // Reads the alive count back to the CPU via a staging buffer.
     // Causes a GPU flush — replace with drawIndirect to eliminate the stall.
     uint32_t readAliveCount(RenderContext* pRenderContext);
+    uint32_t mCachedAliveCount = 0;
 
-    // =========================================================================
-    // Public tuning knobs — set any time before simulate()
-    // =========================================================================
-
-    float3 mEmitterPos = {0.f, 100.f, 0.f};
-    float3 mEmitDirection = {0.f, 1.f, 0.f}; // normalised emit axis
-    float3 mGravity = {0.f, -9.8f, 0.f};
-    float4 mStartColor = {1.f, 0.6f, 0.1f, 1.f}; // orange, fully opaque
-    float4 mEndColor = {0.3f, 0.3f, 0.3f, 0.f};  // grey, fully transparent
-    float mEmitSpeed = 20.f;
-    float mSpreadAngle = 0.3f; // half-angle cone in radians (~17 deg)
-    float mMinLifetime = 1.5f; // seconds
-    float mMaxLifetime = 3.5f;
-    float mMinSize = 50.0f; // world units
-    float mMaxSize = 100.0f;
-    uint32_t mEmitPerFrame = 128;
 
     // =========================================================================
     // Members
@@ -94,6 +104,7 @@ private:
     ref<Device> mpDevice;
 
     // Compute passes
+    ref<ComputePass> mpResetPass;
     ref<ComputePass> mpEmitPass;
     ref<ComputePass> mpUpdatePass;
 
@@ -102,9 +113,22 @@ private:
     ref<Buffer> mpDeadList;
     ref<Buffer> mpAliveList;
     ref<Buffer> mpCounters;
+    ref<Buffer> mpStagingBuffer;
 
     // Billboard raster pass
-    ref<RasterPass> mpBillboardPass;
+   // ref<RasterPass> mpBillboardPass;
+
+   // Billboard raster pipeline — mirrors BillboardGroup members exactly
+    ref<Program> mpBillboardProgram;
+    ref<ProgramVars> mpBillboardVars;
+    ref<GraphicsState> mpBillboardState;
+    ref<Sampler> mpSampler;
+    ref<Texture> mpParticleTexture;
+    ref<Buffer> mpQuadVB;
+    ref<Buffer> mpQuadIB;
+    ref<Vao> mpQuadVao;
+
+
 
     uint32_t mFrameSeed = 0u;
 

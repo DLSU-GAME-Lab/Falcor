@@ -27,99 +27,99 @@
  **************************************************************************/
 
 // ParticleBillboard.3d.slang
-// Billboard raster pass for the particle system.
-// The vertex shader expands each alive particle index into a screen-facing
-// triangle strip quad. The pixel shader renders a soft anti-aliased disc.
-
-// ─── Shared particle layout (must mirror Particles.cs.slang exactly) ─────────
+// Billboard shader for AnitoPlume particle system.
+// Mirrors BillboardGroup.3d.slang — uses real quad VAO + drawIndexedInstanced.
 
 struct Particle
 {
     float3 position;
-    float age;
+    float  age;
     float3 velocity;
-    float lifetime;
+    float  lifetime;
     float4 color;
-    float size;
-    uint flags;
-    float _pad[2];
+    float  size;
+    uint   flags;
+    float  rotation;
+    uint   _pad;
 };
 
 // ─── Resources ────────────────────────────────────────────────────────────────
-
+     
 StructuredBuffer<Particle> gParticles;
-StructuredBuffer<uint> gAliveList;
+StructuredBuffer<uint>     gAliveList;
+Texture2DArray             gTexArray;
+SamplerState               gSampler;
 
 cbuffer BillboardCB
 {
+    float3   gCameraRight;
+    float    _pad0;
+    float3   gCameraUp;
+    float    _pad1;
     float4x4 gViewProj;
-    float3 gCameraRight; // world-space camera right vector
-    float3 gCameraUp;    // world-space camera up vector
 };
 
-// ─── Vertex → pixel payload ───────────────────────────────────────────────────
-
-struct V2P
+struct VsIn
 {
-    float4 posH : SV_Position;
-    float2 uv : TEXCOORD0; // [0,1] over the quad face
-    float4 color : COLOR0;
+    float2 localPos : POSITION;
+    float2 uv       : TEXCOORD;
 };
 
-// ─── Vertex shader ────────────────────────────────────────────────────────────
-// No vertex buffer is bound. SV_VertexID drives everything:
-//   bits [1..n] = index into gAliveList  (which particle)
-//   bits [0..1] = corner index 0-3       (which quad corner)
-//
-// Corner layout (triangle strip order):
-//   2 ── 3
-//   │  / │
-//   0 ── 1
+struct VsOut
+{
+    float4 posH  : SV_Position;
+    float2 uv    : TEXCOORD;
+    float4 color : COLOR;
+};
 
 [shader("vertex")]
-V2P vsMain(uint vertexID: SV_VertexID)
+VsOut vsMain(VsIn vIn, uint instanceID : SV_InstanceID)
 {
-    uint particleIdx = gAliveList[vertexID / 4];
-    uint corner = vertexID % 4;
-    Particle p = gParticles[particleIdx];
+    uint particleIdx = gAliveList[instanceID];
+    Particle p       = gParticles[particleIdx];
 
-    // Signed offsets in [-1, 1] for each corner (matches strip order above)
-    static const float2 kOffsets[4] = {
-        float2(-1.f, -1.f), // 0  bottom-left
-        float2(1.f, -1.f),  // 1  bottom-right
-        float2(-1.f, 1.f),  // 2  top-left
-        float2(1.f, 1.f),   // 3  top-right
-    };
+    // ── Size scaling by age ───────────────────────────────────────────────
+    // Grow from 0 to full size over first 30% of lifetime so newly spawned
+    // particles are invisible and expand into the smoke cloud naturally.
+    // Shrink back to 0 over the last 10% so death is smooth.
+    float t         = saturate(p.age / p.lifetime);
+    float growFade  = saturate(t / 0.3f);                    // 0→1 in first 30%
+    float shrink    = 1.0 - saturate((t - 0.9f) / 0.1f);    // 1→0 in last 10%
+    float scaledSize = p.size * growFade * shrink;
 
-    float2 off = kOffsets[corner] * p.size;
+    // ── Per-particle rotation ─────────────────────────────────────────────
+    float s = sin(p.rotation);
+    float c = cos(p.rotation);
+    float2 rotated = float2(
+        vIn.localPos.x * c - vIn.localPos.y * s,
+        vIn.localPos.x * s + vIn.localPos.y * c
+    );
+
+    // ── Expand into world space ───────────────────────────────────────────
     float3 worldPos = p.position
-                    + gCameraRight * off.x
-                    + gCameraUp * off.y;
+                    + gCameraRight * (rotated.x * scaledSize)
+                    + gCameraUp    * (rotated.y * scaledSize);
 
-    V2P out;
-    out.posH = mul(gViewProj, float4(worldPos, 1.f));
-    out.uv = kOffsets[corner] * 0.5f + 0.5f; // remap to [0, 1]
-    out.color = p.color;
-    return out;
+    VsOut o;
+    o.posH  = mul(gViewProj, float4(worldPos, 1.0));
+    o.uv    = vIn.uv;
+    o.color = p.color;
+    return o;
 }
 
-// ─── Pixel shader ─────────────────────────────────────────────────────────────
-// Renders a smooth circular disc. Fragments outside the unit circle are
-// discarded; the edge is feathered with smoothstep for anti-aliasing.
-
 [shader("pixel")]
-float4 psMain(V2P i) : SV_Target
+float4 psMain(VsOut i) : SV_Target
 {
-    // Remap uv from [0,1] back to [-1,1] to get distance from disc centre
-    float2 centered = i.uv * 2.f - 1.f;
-    float dist = length(centered);
+    float4 texColor = gTexArray.Sample(gSampler, float3(i.uv, 0.0));
+    float4 color    = texColor * i.color;
 
-    if (dist > 1.f) discard;
+    // Soft radial falloff — smooth puff shape
+    float2 uv    = i.uv * 2.0 - 1.0;
+    float  dist  = length(uv);
+    float  alpha = saturate(1.0 - dist);
+    alpha = alpha * alpha * alpha;  // cubic for softer, more smoke-like edge
+    color.a *= alpha;
 
-    // Feather the outer 40% of the radius for a soft edge
-    float discAlpha = smoothstep(1.f, 0.6f, dist);
-    float4 color = i.color;
-    color.a *= discAlpha;
-
+    clip(color.a - 0.01f);
     return color;
 }
