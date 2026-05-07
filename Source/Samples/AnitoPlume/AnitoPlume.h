@@ -99,6 +99,8 @@ private:
     static float windIntensityGraphCallback(void*, int32_t index);
     static float windAngleGraphCallback(void*, int32_t index);
 
+    void InitializeParticleSystemParams();
+
 private:
     // Simulator Input : Wind Settings
     double mAltitude = 0.0;

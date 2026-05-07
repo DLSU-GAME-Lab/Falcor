@@ -241,6 +241,8 @@ void AnitoPlume::loadScene(const std::filesystem::path& path, const Fbo* pTarget
     mpCamera = mpScene->getCamera();
     mpEnvMap = mpScene->getEnvMap();
 
+    InitializeParticleSystemParams();
+
     // Update the controllers
     float radius = mpScene->getSceneBounds().radius();
     mpScene->setCameraSpeed(radius * 0.25f);
@@ -596,7 +598,7 @@ void AnitoPlume::renderParticleDebug(Gui* pGui)
         mpParticles->mEmitDirection = emitDir;
 
     float emitSpeed = mpParticles->mEmitSpeed;
-    if (widget.var("Emit Speed", emitSpeed, 0.f, 100.f, 0.5f))
+    if (widget.var("Emit Speed", emitSpeed, 0.f, 5000.f, 0.5f))
         mpParticles->mEmitSpeed = emitSpeed;
 
     float spreadAngle = mpParticles->mSpreadAngle;
@@ -604,7 +606,7 @@ void AnitoPlume::renderParticleDebug(Gui* pGui)
         mpParticles->mSpreadAngle = spreadAngle;
 
     float spawnRadius = mpParticles->mSpawnRadius;
-    if (widget.var("Spread Radius", spawnRadius, 10.f, 100.0f, 0.01f))
+    if (widget.var("Spread Radius", spawnRadius, 10.f, 5000.0f, 0.01f))
         mpParticles->mSpawnRadius = spawnRadius;
 
     float3 gravity = mpParticles->mGravity;
@@ -617,16 +619,16 @@ void AnitoPlume::renderParticleDebug(Gui* pGui)
 
     float minSize = mpParticles->mMinSize;
     float maxSize = mpParticles->mMaxSize;
-    if (widget.var("Min Size", minSize, 0.f, 100.f, 0.1f))
+    if (widget.var("Min Size", minSize, 0.f, 5000.f, 0.1f))
         mpParticles->mMinSize = minSize;
-    if (widget.var("Max Size", maxSize, 0.f, 100.f, 0.1f))
+    if (widget.var("Max Size", maxSize, 0.f, 5000.f, 0.1f))
         mpParticles->mMaxSize = maxSize;
 
     float minLife = mpParticles->mMinLifetime;
     float maxLife = mpParticles->mMaxLifetime;
-    if (widget.var("Min Lifetime", minLife, 0.f, 60.f, 0.1f))
+    if (widget.var("Min Lifetime", minLife, 0.f, 120.f, 0.1f))
         mpParticles->mMinLifetime = minLife;
-    if (widget.var("Max Lifetime", maxLife, 0.f, 60.f, 0.1f))
+    if (widget.var("Max Lifetime", maxLife, 0.f, 120.f, 0.1f))
         mpParticles->mMaxLifetime = maxLife;
 
     float4 startColor = mpParticles->mStartColor;
@@ -640,30 +642,35 @@ void AnitoPlume::renderParticleDebug(Gui* pGui)
 void AnitoPlume::setupTerrainInfo(RenderContext* pRenderContext)
 {
     BillboardGroup::Desc bgDesc;
-    bgDesc.setMaxCount(5);
-    bgDesc.setMinAlphaDistance(200.f);
-    bgDesc.setMaxAlphaDistance(50.f);
+    bgDesc.setMaxCount(6);
+    bgDesc.setMinAlphaDistance(500.f);
+    bgDesc.setMaxAlphaDistance(100.f);
     // bgDesc.setQuadOffset({-0.5f, 0.5f});
 
     mpTerrainInfo = BillboardGroup::create(pRenderContext, getDevice(), bgDesc);
 
     std::vector<std::string> paths = {
-        "AnitoPlume/tooltips/Tooltip-Malaki.png",
-        "AnitoPlume/tooltips/Tooltip-Munti.png",
         "AnitoPlume/tooltips/Tooltip-Piraso.png",
-        "AnitoPlume/tooltips/Tooltip-Calauit.png",
+        "AnitoPlume/tooltips/Tooltip-Malaki.png",
+        "AnitoPlume/tooltips/Tooltip-Balantoc.png",
+        "AnitoPlume/tooltips/Tooltip-Munti.png",
         "AnitoPlume/tooltips/Tooltip-Tabaro.png",
+        "AnitoPlume/tooltips/Tooltip-Calauit.png",
     };
 
     mpTerrainInfo->loadTextures(pRenderContext, getDevice(), paths);
-
-    float2 size = {200, 200};
+    //Center: (500, 400, -2200)
+    float2 size = {2000, 2000};
     float4 color = {1.f, 1.f, 1.f, 1.f};
-    //mpTerrainInfo->setInstance(0, {0, 50, 0}, 0, size, color);
-    //mpTerrainInfo->setInstance(1, {200, 50, 200}, 1, size, color);
-    //mpTerrainInfo->setInstance(2, {-200, 50, -200}, 2, size, color);
-    //mpTerrainInfo->setInstance(3, {200, 50, -200}, 3, size, color);
-    //mpTerrainInfo->setInstance(4, {-200, 50, 200}, 4, size, color);
+
+    
+    mpTerrainInfo->setInstance(0, {2300, 1200, -5300}, 0, size, color);
+    mpTerrainInfo->setInstance(1, {-2200, 1200, -5200}, 1, size, color);
+    mpTerrainInfo->setInstance(2, {-2000, 1200, -5000}, 2, size, color);
+    mpTerrainInfo->setInstance(3, {-1700, 1200, 1000}, 3, size, color);
+    mpTerrainInfo->setInstance(4, {-900, 1200, -800}, 4, size, color);
+    mpTerrainInfo->setInstance(5, {2300, 1200, 1000}, 5, size, color);
+    
 }
 
 float AnitoPlume::windIntensityGraphCallback(void*, int32_t index)
@@ -675,6 +682,19 @@ float AnitoPlume::windIntensityGraphCallback(void*, int32_t index)
 float AnitoPlume::windAngleGraphCallback(void*, int32_t index)
 {
     return 0.0f;
+}
+
+void AnitoPlume::InitializeParticleSystemParams()
+{
+    mpParticles->mEmitterPos = {500.f, 400.f, -2200.f};
+    mpParticles->mEmitPerFrame = 64;
+    mpParticles->mEmitSpeed = 100.f;
+    mpParticles->mSpawnRadius = 90.f;
+    mpParticles->mWindVelocity = {0.f, 20.f, 40.f};
+    mpParticles->mMinSize = 2000.f;
+    mpParticles->mMaxSize = 3000.f;
+    mpParticles->mMinLifetime = 30.f;
+    mpParticles->mMaxLifetime = 60.f;
 }
 
 #pragma endregion

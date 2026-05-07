@@ -17,6 +17,8 @@ ParticleSystem::ParticleSystem(ref<Device> pDevice) : mpDevice(pDevice)
 // Call every frame — dispatches emit + update compute passes.
 void ParticleSystem::simulate(RenderContext* pRenderContext, float deltaTime)
 {
+    FALCOR_PROFILE(pRenderContext, "ParticleSystem::simulate");
+
     deltaTime = std::min(deltaTime, 0.033f);
 
     if (deltaTime <= 0.f)
@@ -54,6 +56,8 @@ void ParticleSystem::simulate(RenderContext* pRenderContext, float deltaTime)
 // Call every frame after simulate() — composites billboards onto pTargetFbo.
 void ParticleSystem::render(RenderContext* pRenderContext, const ref<Fbo> pTargetFbo, const ref<Camera> pCamera)
 {
+    FALCOR_PROFILE(pRenderContext, "ParticleSystem::render");
+
     // CPU readback of alive count.
     // Replace with drawIndirect to avoid the GPU flush once stable.
     uint32_t aliveCount = readAliveCount(pRenderContext);
@@ -337,7 +341,7 @@ uint32_t ParticleSystem::readAliveCount(RenderContext* pRenderContext)
     uint32_t aliveCount = counters[1];
     mpStagingBuffer->unmap();
 
-    logInfo("ParticleSystem: dead={} alive={}", deadCount, aliveCount);
+    //logInfo("ParticleSystem: dead={} alive={}", deadCount, aliveCount);
 
     return aliveCount;
 }
